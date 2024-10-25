@@ -1,0 +1,35 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - espejo.appuio.io
+  resources:
+  - clustermanagedresources
+  - managedresources
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - espejo.appuio.io
+  resources:
+  - clustermanagedresources/finalizers
+  - managedresources/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - espejo.appuio.io
+  resources:
+  - clustermanagedresources/status
+  - managedresources/status
+  verbs:
+  - get
+  - patch
+  - update

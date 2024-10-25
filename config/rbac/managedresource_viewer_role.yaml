@@ -1,0 +1,23 @@
+# permissions for end users to view managedresources.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: espejote
+    app.kubernetes.io/managed-by: kustomize
+  name: managedresource-viewer-role
+rules:
+- apiGroups:
+  - espejo.appuio.io
+  resources:
+  - managedresources
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - espejo.appuio.io
+  resources:
+  - managedresources/status
+  verbs:
+  - get

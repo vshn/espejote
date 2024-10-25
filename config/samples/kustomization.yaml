@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- espejo_v1alpha1_managedresource.yaml
+- espejo_v1alpha1_clustermanagedresource.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
