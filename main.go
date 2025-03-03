@@ -17,7 +17,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	espejoteiov1alpha1 "github.com/vshn/espejote/api/v1alpha1"
-	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
 	"github.com/vshn/espejote/controllers"
 	//+kubebuilder:scaffold:imports
 )
@@ -29,7 +28,6 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(espejotev1alpha1.AddToScheme(scheme))
 	utilruntime.Must(espejoteiov1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
@@ -79,7 +77,7 @@ func main() {
 	if err = (&controllers.ManagedResourceReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("upgrade-config-controller"),
+		Recorder: mgr.GetEventRecorderFor("managed-resource-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ManagedResource")
 		os.Exit(1)
@@ -87,9 +85,9 @@ func main() {
 	if err = (&controllers.ClusterManagedResourceReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("upgrade-config-controller"),
+		Recorder: mgr.GetEventRecorderFor("cluster-managed-resource-controller"),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ManagedResource")
+		setupLog.Error(err, "unable to create controller", "controller", "ClusterManagedResource")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder
