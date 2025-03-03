@@ -19,7 +19,7 @@ all: build ## Invokes the build target
 
 .PHONY: test
 test: ## Run tests
-	go test ./... -coverprofile cover.tmp.out
+	KUBEBUILDER_ASSETS="$(shell go tool sigs.k8s.io/controller-runtime/tools/setup-envtest use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -race -coverprofile cover.tmp.out
 	cat cover.tmp.out | grep -v "zz_generated.deepcopy.go" > cover.out
 
 .PHONY: build
@@ -61,6 +61,10 @@ clean: ## Cleans up the generated resources
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./main.go
+
+LOCALBIN ?= $(shell pwd)/bin
+$(LOCALBIN):
+	mkdir -p $(LOCALBIN)
 
 ###
 ### Assets
