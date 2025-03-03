@@ -2,7 +2,7 @@
 # This file is used to track the info used to scaffold your project
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
-domain: appuio.io
+domain: espejote.io
 layout:
 - go.kubebuilder.io/v4
 projectName: espejote
@@ -12,18 +12,22 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: appuio.io
-  group: espejo
+  domain: espejote.io
   kind: ManagedResource
   path: github.com/vshn/espejote/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
-    namespaced: true
   controller: true
-  domain: appuio.io
-  group: espejo
+  domain: espejote.io
   kind: ClusterManagedResource
+  path: github.com/vshn/espejote/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: espejote.io
+  kind: JsonnetLibrary
   path: github.com/vshn/espejote/api/v1alpha1
   version: v1alpha1
 version: "3"

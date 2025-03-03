@@ -1,0 +1,9 @@
+apiVersion: espejote.io/v1alpha1
+kind: JsonnetLibrary
+metadata:
+  labels:
+    app.kubernetes.io/name: espejote
+    app.kubernetes.io/managed-by: kustomize
+  name: jsonnetlibrary-sample
+spec:
+  # TODO(user): Add fields here
