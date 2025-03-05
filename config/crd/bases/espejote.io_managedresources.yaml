@@ -38,6 +38,30 @@ spec:
             type: object
           spec:
             description: ManagedResourceSpec defines the desired state of ManagedResource
+            properties:
+              template:
+                description: Template defines the template for the ManagedResource
+                type: string
+              triggers:
+                description: Triggers define the resources that trigger the reconciliation
+                  of the ManagedResource
+                items:
+                  properties:
+                    watchResource:
+                      description: WatchResource defines one or multiple resources
+                        that trigger the reconciliation of the ManagedResource
+                      properties:
+                        apiVersion:
+                          type: string
+                        group:
+                          type: string
+                        kind:
+                          type: string
+                        name:
+                          type: string
+                      type: object
+                  type: object
+                type: array
             type: object
           status:
             description: ManagedResourceStatus defines the observed state of ManagedResource

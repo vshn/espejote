@@ -39,10 +39,10 @@ spec:
           spec:
             description: JsonnetLibrarySpec defines the desired state of JsonnetLibrary.
             properties:
-              foo:
-                description: Foo is an example field of JsonnetLibrary. Edit jsonnetlibrary_types.go
-                  to remove/update
-                type: string
+              data:
+                additionalProperties:
+                  type: string
+                type: object
             type: object
           status:
             description: JsonnetLibraryStatus defines the observed state of JsonnetLibrary.
