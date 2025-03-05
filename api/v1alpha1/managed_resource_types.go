@@ -6,6 +6,23 @@ import (
 
 // ManagedResourceSpec defines the desired state of ManagedResource
 type ManagedResourceSpec struct {
+	// Triggers define the resources that trigger the reconciliation of the ManagedResource
+	Triggers []ManagedResourceTrigger `json:"triggers,omitempty"`
+
+	// Template defines the template for the ManagedResource
+	Template string `json:"template,omitempty"`
+}
+
+type ManagedResourceTrigger struct {
+	// WatchResource defines one or multiple resources that trigger the reconciliation of the ManagedResource
+	WatchResource TriggerWatchResource `json:"watchResource,omitempty"`
+}
+
+type TriggerWatchResource struct {
+	APIVersion string `json:"apiVersion,omitempty"`
+	Group      string `json:"group,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+	Name       string `json:"name,omitempty"`
 }
 
 // ManagedResourceStatus defines the observed state of ManagedResource

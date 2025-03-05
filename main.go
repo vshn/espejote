@@ -33,6 +33,8 @@ func init() {
 }
 
 func main() {
+	lifetimeCtx := ctrl.SetupSignalHandler()
+
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
@@ -45,11 +47,19 @@ func main() {
 		Development: true,
 	}
 	opts.BindFlags(flag.CommandLine)
+
+	defaultNamespace := "default"
+	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+		defaultNamespace = ns
+	}
+	var jsonnetLibraryNamespace string
+	flag.StringVar(&jsonnetLibraryNamespace, "jsonnet-library-namespace", defaultNamespace, "The namespace that the controller watches for jsonnet libraries.")
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	restConf := ctrl.GetConfigOrDie()
+	mgr, err := ctrl.NewManager(restConf, ctrl.Options{
 		Scheme: scheme,
 		Metrics: server.Options{
 			BindAddress: metricsAddr,
@@ -78,6 +88,10 @@ func main() {
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("managed-resource-controller"),
+
+		RESTConfig:              restConf,
+		ControllerLifetimeCtx:   lifetimeCtx,
+		JsonnetLibraryNamespace: jsonnetLibraryNamespace,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ManagedResource")
 		os.Exit(1)
@@ -102,7 +116,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(lifetimeCtx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
