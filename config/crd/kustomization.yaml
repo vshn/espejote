@@ -3,7 +3,6 @@
 # It should be run by config/default
 resources:
 - bases/espejote.io_managedresources.yaml
-- bases/espejote.io_clustermanagedresources.yaml
 - bases/espejote.io_jsonnetlibraries.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 

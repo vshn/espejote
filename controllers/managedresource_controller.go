@@ -10,13 +10,17 @@ import (
 
 	"github.com/google/go-jsonnet"
 	"go.uber.org/multierr"
+	authv1 "k8s.io/api/authentication/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -44,18 +48,20 @@ type WatchResource struct {
 	Group      string `json:"group,omitempty"`
 	Kind       string `json:"kind,omitempty"`
 	Name       string `json:"name,omitempty"`
+	Namespace  string `json:"namespace,omitempty"`
 }
 
 type ManagedResourceReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	Recorder   record.EventRecorder
-	RESTConfig *rest.Config
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 
 	ControllerLifetimeCtx   context.Context
 	JsonnetLibraryNamespace string
 
 	controller controller.TypedController[Request]
+	clientset  *kubernetes.Clientset
+	restConfig *rest.Config
 
 	cachesMux sync.RWMutex
 	caches    map[types.NamespacedName]*cacheInfo
@@ -84,6 +90,8 @@ func (ci *cacheInfo) CacheReady() (bool, error) {
 //+kubebuilder:rbac:groups=espejote.io,resources=managedresources,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=espejote.io,resources=managedresources/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=espejote.io,resources=managedresources/finalizers,verbs=update
+
+//+kubebuilder:rbac:groups="",resources=serviceaccounts/token,verbs=create
 
 func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) (ctrl.Result, error) {
 	l := log.FromContext(ctx).WithName("ManagedResourceReconciler.Reconcile").WithValues("request", req)
@@ -160,7 +168,7 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 			objects = append(objects, obj)
 		}
 	} else if rendered == "null" {
-		// do nothing
+		l.V(1).Info("rendered template returned null")
 	} else {
 		return ctrl.Result{}, fmt.Errorf("unexpected rendered template: %q", rendered)
 	}
@@ -200,7 +208,12 @@ func (r *ManagedResourceReconciler) cacheFor(mr espejotev1alpha1.ManagedResource
 		return ci, nil
 	}
 
-	c, err := cache.New(r.RESTConfig, cache.Options{
+	rc, err := r.restConfigForManagedResource(r.ControllerLifetimeCtx, mr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rest config for managed resource: %w", err)
+	}
+
+	c, err := cache.New(rc, cache.Options{
 		Scheme:                      r.Scheme,
 		ReaderFailOnMissingInformer: true,
 		DefaultNamespaces: map[string]cache.Config{
@@ -256,8 +269,8 @@ func (r *ManagedResourceReconciler) cacheFor(mr espejotev1alpha1.ManagedResource
 	return ci, nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
-func (r *ManagedResourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+// Setup sets up the controller with the Manager.
+func (r *ManagedResourceReconciler) Setup(cfg *rest.Config, mgr ctrl.Manager) error {
 	c, err := builder.TypedControllerManagedBy[Request](mgr).
 		Named("managed_resource").
 		Watches(&espejotev1alpha1.ManagedResource{}, handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, a client.Object) []Request {
@@ -271,9 +284,57 @@ func (r *ManagedResourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			}
 		})).
 		Build(r)
-
+	if err != nil {
+		return fmt.Errorf("failed to setup controller: %w", err)
+	}
 	r.controller = c
+
+	kubernetesClient, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+	r.clientset = kubernetesClient
+	r.restConfig = cfg
+
 	return err
+}
+
+// jwtTokenForSA returns a JWT token for the given service account.
+// The token is valid for 1 year.
+func (r *ManagedResourceReconciler) jwtTokenForSA(ctx context.Context, namespace, name string) (string, error) {
+	treq, err := r.clientset.CoreV1().ServiceAccounts(namespace).CreateToken(ctx, name, &authv1.TokenRequest{
+		Spec: authv1.TokenRequestSpec{
+			ExpirationSeconds: ptr.To(int64(60 * 60 * 24 * 365)), // 1 year
+			BoundObjectRef:    &authv1.BoundObjectReference{},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return "", fmt.Errorf("token request for %q failed: %w", strings.Join([]string{"system:serviceaccount", namespace, name}, ":"), err)
+	}
+
+	return treq.Status.Token, nil
+}
+
+// restConfigForManagedResource returns a rest.Config for the given ManagedResource.
+// The rest.Config contains a Bearer token for the service account specified in the ManagedResource.
+// The rest.Config copies the TLSClientConfig and Host from the controller's rest.Config.
+func (r *ManagedResourceReconciler) restConfigForManagedResource(ctx context.Context, mr espejotev1alpha1.ManagedResource) (*rest.Config, error) {
+	name := mr.Spec.ServiceAccountRef.Name
+	if name == "" {
+		name = "default"
+	}
+	token, err := r.jwtTokenForSA(ctx, mr.GetNamespace(), name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get JWT token: %w", err)
+	}
+
+	crc := r.restConfig
+	config := rest.Config{
+		Host:            crc.Host,
+		BearerToken:     token,
+		TLSClientConfig: *crc.TLSClientConfig.DeepCopy(),
+	}
+	return &config, nil
 }
 
 func staticMapFunc(r types.NamespacedName) func(context.Context, client.Object) []Request {
@@ -288,6 +349,7 @@ func staticMapFunc(r types.NamespacedName) func(context.Context, client.Object) 
 						Group:      gvk.Group,
 						Kind:       gvk.Kind,
 						Name:       o.GetName(),
+						Namespace:  o.GetNamespace(),
 					},
 				},
 			},

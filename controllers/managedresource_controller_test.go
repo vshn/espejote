@@ -30,18 +30,16 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		ctx := log.IntoContext(t.Context(), testr.New(t))
 
 		subject := &ManagedResourceReconciler{
-			Client:                c,
-			Scheme:                c.Scheme(),
-			ControllerLifetimeCtx: ctx,
-			RESTConfig:            cfg,
-
+			Client:                  c,
+			Scheme:                  c.Scheme(),
+			ControllerLifetimeCtx:   ctx,
 			JsonnetLibraryNamespace: "jsonnetlibs",
 		}
 		mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 			Scheme: scheme,
 		})
 		require.NoError(t, err)
-		require.NoError(t, subject.SetupWithManager(mgr))
+		require.NoError(t, subject.Setup(cfg, mgr))
 
 		mgrCtx, mgrCancel := context.WithCancel(ctx)
 		t.Cleanup(mgrCancel)
@@ -65,6 +63,14 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 			},
 		}
 		require.NoError(t, c.Create(ctx, jsonnetLib))
+
+		saForManagedResource := &corev1.ServiceAccount{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "default",
+				Namespace: "default",
+			},
+		}
+		require.NoError(t, c.Create(ctx, saForManagedResource))
 
 		res := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{

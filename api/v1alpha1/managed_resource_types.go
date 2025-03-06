@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -8,6 +9,10 @@ import (
 type ManagedResourceSpec struct {
 	// Triggers define the resources that trigger the reconciliation of the ManagedResource
 	Triggers []ManagedResourceTrigger `json:"triggers,omitempty"`
+
+	// ServiceAccountRef is the service account to be used to run the controllers associated with this configuration
+	// The default is the namespace's default service account
+	ServiceAccountRef corev1.LocalObjectReference `json:"serviceAccountRef,omitempty"`
 
 	// Template defines the template for the ManagedResource
 	Template string `json:"template,omitempty"`

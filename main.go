@@ -89,19 +89,10 @@ func main() {
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("managed-resource-controller"),
 
-		RESTConfig:              restConf,
 		ControllerLifetimeCtx:   lifetimeCtx,
 		JsonnetLibraryNamespace: jsonnetLibraryNamespace,
-	}).SetupWithManager(mgr); err != nil {
+	}).Setup(restConf, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ManagedResource")
-		os.Exit(1)
-	}
-	if err = (&controllers.ClusterManagedResourceReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("cluster-managed-resource-controller"),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ClusterManagedResource")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder
