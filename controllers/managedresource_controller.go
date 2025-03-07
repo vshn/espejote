@@ -39,7 +39,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
-	"github.com/vshn/espejote/api/v1alpha1/inf"
 )
 
 const jsonNull = "null"
@@ -154,9 +153,18 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 	}
 
 	jvm := jsonnet.MakeVM()
-	jvm.Importer(&ManifestImporter{
-		Client:    r.Client,
-		Namespace: r.JsonnetLibraryNamespace,
+	jvm.Importer(&MultiImporter{
+		Importers: []jsonnet.Importer{
+			&jsonnet.MemoryImporter{
+				Data: map[string]jsonnet.Contents{
+					"espejote.libsonnet": jsonnet.MakeContents(espejoteLibsonnet),
+				},
+			},
+			&ManifestImporter{
+				Client:    r.Client,
+				Namespace: r.JsonnetLibraryNamespace,
+			},
+		},
 	})
 
 	triggerJSON := jsonNull
@@ -181,7 +189,7 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 		}
 		triggerJSON = string(triggerJSONBytes)
 	}
-	jvm.ExtCode("trigger", triggerJSON)
+	jvm.ExtCode("__internal_use_espejote_lib_trigger", triggerJSON)
 
 	contexts := map[string]any{}
 	for i, con := range managedResource.Spec.Context {
@@ -217,7 +225,7 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to marshal contexts: %w", err)
 	}
-	jvm.ExtCode("context", string(contextJSON))
+	jvm.ExtCode("__internal_use_espejote_lib_context", string(contextJSON))
 
 	rendered, err := jvm.EvaluateAnonymousSnippet("template", managedResource.Spec.Template)
 	if err != nil {
@@ -421,7 +429,7 @@ func (r *ManagedResourceReconciler) restConfigForManagedResource(ctx context.Con
 	return &config, nil
 }
 
-func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context.Context, cr inf.ClusterResource, rc *rest.Config, defaultNamespace string) (client.Object, *definitionCache, error) {
+func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context.Context, cr espejotev1alpha1.ClusterResource, rc *rest.Config, defaultNamespace string) (client.Object, *definitionCache, error) {
 	watchTarget := &unstructured.Unstructured{}
 	watchTarget.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   cr.GetGroup(),

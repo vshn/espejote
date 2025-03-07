@@ -94,10 +94,11 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 					},
 				},
 				Template: `
-local trigger = std.extVar("trigger");
+local esp = import "espejote.libsonnet";
 local test = import "test/test.jsonnet";
+local trigger = esp.getTrigger();
 
-if trigger != null && trigger.kind == "Namespace" then [{
+if esp.triggerKnown() && trigger.kind == "Namespace" then [{
 	apiVersion: 'v1',
 	kind: 'ConfigMap',
 	metadata: {
@@ -165,7 +166,8 @@ if trigger != null && trigger.kind == "Namespace" then [{
 					},
 				}},
 				Template: `
-local cms = std.extVar("context").cms;
+local esp = import "espejote.libsonnet";
+local cms = esp.getContext("cms");
 
 [{
 	apiVersion: 'v1',
