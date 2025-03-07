@@ -2,6 +2,8 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"testing"
 	"time"
 
@@ -26,24 +28,28 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	ctx := log.IntoContext(t.Context(), testr.New(t))
+
+	subject := &ManagedResourceReconciler{
+		Client:                  c,
+		Scheme:                  c.Scheme(),
+		ControllerLifetimeCtx:   ctx,
+		JsonnetLibraryNamespace: "jsonnetlibs",
+	}
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme: scheme,
+	})
+	require.NoError(t, err)
+	require.NoError(t, subject.Setup(cfg, mgr))
+
+	mgrCtx, mgrCancel := context.WithCancel(ctx)
+	t.Cleanup(mgrCancel)
+	go mgr.Start(mgrCtx)
+
 	t.Run("reconcile from added watch resource trigger", func(t *testing.T) {
-		ctx := log.IntoContext(t.Context(), testr.New(t))
+		t.Parallel()
 
-		subject := &ManagedResourceReconciler{
-			Client:                  c,
-			Scheme:                  c.Scheme(),
-			ControllerLifetimeCtx:   ctx,
-			JsonnetLibraryNamespace: "jsonnetlibs",
-		}
-		mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-			Scheme: scheme,
-		})
-		require.NoError(t, err)
-		require.NoError(t, subject.Setup(cfg, mgr))
-
-		mgrCtx, mgrCancel := context.WithCancel(ctx)
-		t.Cleanup(mgrCancel)
-		go mgr.Start(mgrCtx)
+		testns := tmpNamespace(t, c)
 
 		jsonnetLibNs := &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
@@ -67,7 +73,7 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		saForManagedResource := &corev1.ServiceAccount{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "default",
-				Namespace: "default",
+				Namespace: testns,
 			},
 		}
 		require.NoError(t, c.Create(ctx, saForManagedResource))
@@ -75,7 +81,7 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		res := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test",
-				Namespace: "default",
+				Namespace: testns,
 			},
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
@@ -83,6 +89,7 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 						WatchResource: espejotev1alpha1.TriggerWatchResource{
 							Kind:       "Namespace",
 							APIVersion: "v1",
+							Name:       testns + "-2",
 						},
 					},
 				},
@@ -108,15 +115,106 @@ if trigger != null && trigger.kind == "Namespace" then [{
 
 		ns := &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "test",
+				Name: testns + "-2",
 			},
 		}
 		require.NoError(t, c.Create(ctx, ns))
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var cm corev1.ConfigMap
-			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "test", Name: "test"}, &cm))
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: "test"}, &cm))
 			assert.Equal(t, "world", cm.Annotations["espejote.vshn.net/hello"])
 		}, 5*time.Second, 100*time.Millisecond)
 	})
+
+	t.Run("with filtered context", func(t *testing.T) {
+		t.Parallel()
+
+		testns := tmpNamespace(t, c)
+
+		saForManagedResource := &corev1.ServiceAccount{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "default",
+				Namespace: testns,
+			},
+		}
+		require.NoError(t, c.Create(ctx, saForManagedResource))
+
+		for i := 0; i < 500; i++ {
+			cm := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test" + strconv.Itoa(i),
+					Namespace: testns,
+				},
+			}
+			require.NoError(t, c.Create(ctx, cm))
+		}
+
+		res := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Context: []espejotev1alpha1.ManagedResourceContext{{
+					Def: "cms",
+					Resource: espejotev1alpha1.ContextResource{
+						APIVersion:  "v1",
+						Kind:        "ConfigMap",
+						IgnoreNames: []string{"collected", "test1", "test3"},
+					},
+				}},
+				Template: `
+local cms = std.extVar("context").cms;
+
+[{
+	apiVersion: 'v1',
+	kind: 'ConfigMap',
+	metadata: {
+		name: 'collected',
+	},
+	data: {
+		cms: std.manifestJsonMinified(std.map(function(cm) cm.metadata.name, cms)),
+	}
+}]
+				`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, res))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "collected"}, &cm))
+
+			var cms []string
+			require.NoError(t, json.Unmarshal([]byte(cm.Data["cms"]), &cms))
+			expected := make([]string, 0, 500)
+			for i := 0; i < 500; i++ {
+				if i == 1 || i == 3 {
+					continue
+				}
+				expected = append(expected, "test"+strconv.Itoa(i))
+			}
+			assert.ElementsMatch(t, expected, cms)
+
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+}
+
+func tmpNamespace(t *testing.T, c client.Client) string {
+	t.Helper()
+
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "espejote-test-",
+			Annotations: map[string]string{
+				"test.espejote.vshn.net/name": t.Name(),
+			},
+		},
+	}
+	require.NoError(t, c.Create(context.Background(), ns))
+	t.Cleanup(func() {
+		require.NoError(t, c.Delete(context.Background(), ns))
+	})
+	return ns.Name
 }

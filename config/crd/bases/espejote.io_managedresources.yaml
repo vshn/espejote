@@ -39,6 +39,110 @@ spec:
           spec:
             description: ManagedResourceSpec defines the desired state of ManagedResource
             properties:
+              context:
+                description: Context defines the context for the ManagedResource
+                items:
+                  properties:
+                    def:
+                      description: Def is the name of the context definition. The
+                        context can be referenced in the template by this name.
+                      type: string
+                    resource:
+                      properties:
+                        apiVersion:
+                          description: APIVersion of the resource that should be added
+                            to the context.
+                          type: string
+                        group:
+                          description: Group of the resource that should be added
+                            to the context.
+                          type: string
+                        ignoreNames:
+                          description: |-
+                            IgnoreNames can be used to filter the resources that should be added to the context.
+                            This is considered experimental and might be removed in the future.
+                            The filtering is done on the controller side and might not be as efficient as the LabelSelector.
+                            Filtered objects are dropped before any caching or processing.
+                          items:
+                            type: string
+                          type: array
+                        kind:
+                          description: Kind of the resource that should be added to
+                            the context.
+                          type: string
+                        labelSelector:
+                          description: |-
+                            LabelSelector can be used to filter the resources that should be added to the context.
+                            This is efficiently done by the Kubernetes API server
+                          properties:
+                            matchExpressions:
+                              description: matchExpressions is a list of label selector
+                                requirements. The requirements are ANDed.
+                              items:
+                                description: |-
+                                  A label selector requirement is a selector that contains values, a key, and an operator that
+                                  relates the key and values.
+                                properties:
+                                  key:
+                                    description: key is the label key that the selector
+                                      applies to.
+                                    type: string
+                                  operator:
+                                    description: |-
+                                      operator represents a key's relationship to a set of values.
+                                      Valid operators are In, NotIn, Exists and DoesNotExist.
+                                    type: string
+                                  values:
+                                    description: |-
+                                      values is an array of string values. If the operator is In or NotIn,
+                                      the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                      the values array must be empty. This array is replaced during a strategic
+                                      merge patch.
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                operator is "In", and the values array contains only "value". The requirements are ANDed.
+                              type: object
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        matchNames:
+                          description: |-
+                            MatchNames can be used to filter the resources that should be added to the context.
+                            This is considered experimental and might be removed in the future.
+                            The filtering is done on the controller side and might not be as efficient as the LabelSelector.
+                            Filtered objects are dropped before any caching or processing.
+                          items:
+                            type: string
+                          type: array
+                        name:
+                          description: |-
+                            Name of the resource that should be added to the context.
+                            If not set, all resources of the specified Kind are added to the context.
+                          type: string
+                        namespace:
+                          description: |-
+                            Namespace for the resources that should be added to the context.
+                            If not set, the namespace of the ManagedResource is used.
+                            Can be set to empty string to add all namespaces.
+                          type: string
+                      type: object
+                  required:
+                  - def
+                  type: object
+                type: array
               serviceAccountRef:
                 description: |-
                   ServiceAccountRef is the service account to be used to run the controllers associated with this configuration
@@ -68,12 +172,90 @@ spec:
                         that trigger the reconciliation of the ManagedResource
                       properties:
                         apiVersion:
+                          description: APIVersion of the resource that should be watched.
                           type: string
                         group:
+                          description: Group of the resource that should be watched.
                           type: string
+                        ignoreNames:
+                          description: |-
+                            IgnoreNames can be used to filter the resources that should be watched.
+                            This is considered experimental and might be removed in the future.
+                            The filtering is done on the controller side and might not be as efficient as the LabelSelector.
+                            Filtered objects are dropped before any caching or processing.
+                          items:
+                            type: string
+                          type: array
                         kind:
+                          description: Kind of the resource that should be watched.
                           type: string
+                        labelSelector:
+                          description: |-
+                            LabelSelector can be used to filter the resources that should be watched.
+                            This is efficiently done by the Kubernetes API server
+                          properties:
+                            matchExpressions:
+                              description: matchExpressions is a list of label selector
+                                requirements. The requirements are ANDed.
+                              items:
+                                description: |-
+                                  A label selector requirement is a selector that contains values, a key, and an operator that
+                                  relates the key and values.
+                                properties:
+                                  key:
+                                    description: key is the label key that the selector
+                                      applies to.
+                                    type: string
+                                  operator:
+                                    description: |-
+                                      operator represents a key's relationship to a set of values.
+                                      Valid operators are In, NotIn, Exists and DoesNotExist.
+                                    type: string
+                                  values:
+                                    description: |-
+                                      values is an array of string values. If the operator is In or NotIn,
+                                      the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                      the values array must be empty. This array is replaced during a strategic
+                                      merge patch.
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                operator is "In", and the values array contains only "value". The requirements are ANDed.
+                              type: object
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        matchNames:
+                          description: |-
+                            MatchNames can be used to filter the resources that should be watched.
+                            This is considered experimental and might be removed in the future.
+                            The filtering is done on the controller side and might not be as efficient as the LabelSelector.
+                            Filtered objects are dropped before any caching or processing.
+                          items:
+                            type: string
+                          type: array
                         name:
+                          description: |-
+                            Name of the resource that should be watched.
+                            If not set, all resources of the specified Kind are watched.
+                          type: string
+                        namespace:
+                          description: |-
+                            Namespace for the resources that should be watched.
+                            If not set, the namespace of the ManagedResource is used.
+                            Can be set to empty string to watch all namespaces.
                           type: string
                       type: object
                   type: object
