@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"crypto/md5"
 	encjson "encoding/json"
 	"errors"
 	"fmt"
@@ -84,7 +85,7 @@ type instanceCache struct {
 	triggerCaches map[int]*definitionCache
 	contextCaches map[int]*definitionCache
 
-	// resourceVersion string
+	watchConfigHash string
 
 	stop func()
 }
@@ -106,7 +107,7 @@ func (ci *instanceCache) AllCachesReady() (bool, error) {
 		ret = ret && ready
 		errs = append(errs, err)
 	}
-	return true, multierr.Combine(errs...)
+	return ret, multierr.Combine(errs...)
 }
 
 type definitionCache struct {
@@ -119,7 +120,14 @@ type definitionCache struct {
 func (ci *definitionCache) CacheReady() (bool, error) {
 	ci.cacheReadyMux.Lock()
 	defer ci.cacheReadyMux.Unlock()
-	return ci.cacheReady == nil, ci.cacheReady
+	return ci.cacheReady == nil, ignoreErrCacheNotReady(ci.cacheReady)
+}
+
+func ignoreErrCacheNotReady(err error) error {
+	if errors.Is(err, ErrCacheNotReady) {
+		return nil
+	}
+	return err
 }
 
 //+kubebuilder:rbac:groups=espejote.io,resources=managedresources,verbs=get;list;watch;create;update;patch;delete
@@ -137,7 +145,7 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	ci, err := r.cacheFor(managedResource)
+	ci, err := r.cacheFor(ctx, managedResource)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -145,11 +153,8 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	// todo this is never reached because of the error handling
 	if !ready {
-		// TODO: we could use a channel source to requeue when the cache is ready
-		// not sure if worth the effort
-		return ctrl.Result{RequeueAfter: 1}, nil
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	jvm := jsonnet.MakeVM()
@@ -286,22 +291,36 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 var ErrCacheNotReady = errors.New("cache not ready")
 var ErrFailedSyncCache = errors.New("failed to sync cache")
 
-func (r *ManagedResourceReconciler) cacheFor(mr espejotev1alpha1.ManagedResource) (*instanceCache, error) {
+func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1alpha1.ManagedResource) (*instanceCache, error) {
+	l := log.FromContext(ctx).WithName("ManagedResourceReconciler.cacheFor")
+
 	k := client.ObjectKeyFromObject(&mr)
+
+	hsh := md5.New()
+	henc := json.NewEncoder(hsh)
+	if err := henc.Encode(mr.Spec.Triggers); err != nil {
+		return nil, fmt.Errorf("failed to encode triggers: %w", err)
+	}
+	if err := henc.Encode(mr.Spec.Context); err != nil {
+		return nil, fmt.Errorf("failed to encode contexts: %w", err)
+	}
+	configHash := fmt.Sprintf("%x", hsh.Sum(nil))
 
 	r.cachesMux.RLock()
 	ci, ok := r.caches[k]
-	r.cachesMux.RUnlock()
-
-	if ok {
+	if ok && ci.watchConfigHash == configHash {
+		r.cachesMux.RUnlock()
 		return ci, nil
 	}
+	r.cachesMux.RUnlock()
 
 	r.cachesMux.Lock()
 	defer r.cachesMux.Unlock()
-	ci, ok = r.caches[k]
-	if ok {
+	if ok && ci.watchConfigHash == configHash {
 		return ci, nil
+	} else if ok {
+		l.Info("cache config changed, stopping old cache", "old", ci.watchConfigHash, "new", configHash)
+		ci.Stop()
 	}
 
 	rc, err := r.restConfigForManagedResource(r.ControllerLifetimeCtx, mr)
@@ -311,9 +330,10 @@ func (r *ManagedResourceReconciler) cacheFor(mr espejotev1alpha1.ManagedResource
 
 	cctx, cancel := context.WithCancel(r.ControllerLifetimeCtx)
 	ci = &instanceCache{
-		triggerCaches: make(map[int]*definitionCache),
-		contextCaches: make(map[int]*definitionCache),
-		stop:          cancel,
+		triggerCaches:   make(map[int]*definitionCache),
+		contextCaches:   make(map[int]*definitionCache),
+		stop:            cancel,
+		watchConfigHash: configHash,
 	}
 	for ti, trigger := range mr.Spec.Triggers {
 		if trigger.WatchResource.APIVersion == "" {

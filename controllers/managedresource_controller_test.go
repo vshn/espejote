@@ -198,7 +198,19 @@ local cms = esp.getContext("cms");
 				expected = append(expected, "test"+strconv.Itoa(i))
 			}
 			assert.ElementsMatch(t, expected, cms)
+		}, 5*time.Second, 100*time.Millisecond)
 
+		res.Spec.Context[0].Resource.IgnoreNames = []string{}
+		res.Spec.Context[0].Resource.MatchNames = []string{"test1", "test3"}
+		require.NoError(t, c.Update(ctx, res))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "collected"}, &cm))
+
+			var cms []string
+			require.NoError(t, json.Unmarshal([]byte(cm.Data["cms"]), &cms))
+			assert.ElementsMatch(t, []string{"test1", "test3"}, cms)
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 }
