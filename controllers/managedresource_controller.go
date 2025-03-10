@@ -14,6 +14,7 @@ import (
 	"github.com/google/go-jsonnet"
 	"go.uber.org/multierr"
 	authv1 "k8s.io/api/authentication/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -142,7 +143,11 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 
 	var managedResource espejotev1alpha1.ManagedResource
 	if err := r.Get(ctx, req.NamespacedName, &managedResource); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		if apierrors.IsNotFound(err) {
+			r.stopAndRemoveCacheFor(managedResource)
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, err
 	}
 
 	ci, err := r.cacheFor(ctx, managedResource)
@@ -290,6 +295,28 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 
 var ErrCacheNotReady = errors.New("cache not ready")
 var ErrFailedSyncCache = errors.New("failed to sync cache")
+
+func (r *ManagedResourceReconciler) stopAndRemoveCacheFor(mr espejotev1alpha1.ManagedResource) {
+	k := client.ObjectKeyFromObject(&mr)
+
+	r.cachesMux.RLock()
+	_, ok := r.caches[k]
+	if !ok {
+		r.cachesMux.RUnlock()
+		return
+	}
+	r.cachesMux.RUnlock()
+
+	r.cachesMux.Lock()
+	defer r.cachesMux.Unlock()
+
+	ci, ok := r.caches[k]
+	if !ok {
+		return
+	}
+	ci.Stop()
+	delete(r.caches, k)
+}
 
 func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1alpha1.ManagedResource) (*instanceCache, error) {
 	l := log.FromContext(ctx).WithName("ManagedResourceReconciler.cacheFor")
