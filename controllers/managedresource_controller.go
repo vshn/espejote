@@ -187,17 +187,21 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 		})
 		tc, ok := ci.triggerCaches[req.TriggerInfo.TriggerIndex]
 		if !ok {
-			// TODO should not happen if we check resourceVersion while getting the cache
+			// Should not happen as we checked all cache configuration before
 			return ctrl.Result{}, fmt.Errorf("cache for trigger %d not found", req.TriggerInfo.TriggerIndex)
 		}
-		if err := tc.cache.Get(ctx, types.NamespacedName{Namespace: req.TriggerInfo.WatchResource.Namespace, Name: req.TriggerInfo.WatchResource.Name}, &triggerObj); err != nil {
+		err := tc.cache.Get(ctx, types.NamespacedName{Namespace: req.TriggerInfo.WatchResource.Namespace, Name: req.TriggerInfo.WatchResource.Name}, &triggerObj)
+		if err == nil {
+			triggerJSONBytes, err := json.Marshal(triggerObj.UnstructuredContent())
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to marshal trigger info: %w", err)
+			}
+			triggerJSON = string(triggerJSONBytes)
+		} else if apierrors.IsNotFound(err) {
+			l.Info("trigger object not found, was deleted", "trigger", req.TriggerInfo.WatchResource)
+		} else {
 			return ctrl.Result{}, fmt.Errorf("failed to get trigger object: %w", err)
 		}
-		triggerJSONBytes, err := json.Marshal(triggerObj.UnstructuredContent())
-		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to marshal trigger info: %w", err)
-		}
-		triggerJSON = string(triggerJSONBytes)
 	}
 	jvm.ExtCode("__internal_use_espejote_lib_trigger", triggerJSON)
 
@@ -208,7 +212,7 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 		}
 		cc, ok := ci.contextCaches[i]
 		if !ok {
-			// TODO should not happen if we check resourceVersion while getting the cache
+			// Should not happen as we checked all cache configuration before
 			return ctrl.Result{}, fmt.Errorf("cache for context %d not found", i)
 		}
 		var contextObj unstructured.Unstructured
@@ -590,6 +594,7 @@ func wrapNewInformerWithFilter(f func(o client.Object) (keep bool)) func(toolsca
 					if !ok {
 						return in, true
 					}
+					fmt.Println("!!!!!!!!!!!!! EVENT !!!!!!!!!!!!!!!", in.Type, obj.(*unstructured.Unstructured).UnstructuredContent())
 					return in, f(obj)
 				}), nil
 			},

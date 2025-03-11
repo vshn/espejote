@@ -200,9 +200,18 @@ local cms = esp.getContext("cms");
 			assert.ElementsMatch(t, expected, cms)
 		}, 5*time.Second, 100*time.Millisecond)
 
-		res.Spec.Context[0].Resource.IgnoreNames = []string{}
-		res.Spec.Context[0].Resource.MatchNames = []string{"test1", "test3"}
-		require.NoError(t, c.Update(ctx, res))
+		var resToUpdate espejotev1alpha1.ManagedResource
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: res.Name}, &resToUpdate))
+		resToUpdate.Spec.Triggers = []espejotev1alpha1.ManagedResourceTrigger{{
+			WatchResource: espejotev1alpha1.TriggerWatchResource{
+				Kind:       "ConfigMap",
+				APIVersion: "v1",
+				MatchNames: []string{"test1", "test3"},
+			},
+		}}
+		resToUpdate.Spec.Context[0].Resource.IgnoreNames = []string{}
+		resToUpdate.Spec.Context[0].Resource.MatchNames = []string{"test1", "test3"}
+		require.NoError(t, c.Update(ctx, &resToUpdate))
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var cm corev1.ConfigMap
@@ -212,6 +221,25 @@ local cms = esp.getContext("cms");
 			require.NoError(t, json.Unmarshal([]byte(cm.Data["cms"]), &cms))
 			assert.ElementsMatch(t, []string{"test1", "test3"}, cms)
 		}, 5*time.Second, 100*time.Millisecond)
+
+		var cmToDelete corev1.ConfigMap
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test1"}, &cmToDelete))
+		require.NoError(t, c.Delete(ctx, &cmToDelete))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "collected"}, &cm))
+
+			var cms []string
+			require.NoError(t, json.Unmarshal([]byte(cm.Data["cms"]), &cms))
+			assert.ElementsMatch(t, []string{"test3"}, cms)
+		}, 5*time.Second, 100*time.Millisecond)
+
+		require.NoError(t, c.Delete(ctx, res))
+
+		var cmToDelete2 corev1.ConfigMap
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test3"}, &cmToDelete2))
+		require.NoError(t, c.Delete(ctx, &cmToDelete2))
 	})
 }
 
