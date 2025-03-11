@@ -594,7 +594,6 @@ func wrapNewInformerWithFilter(f func(o client.Object) (keep bool)) func(toolsca
 					if !ok {
 						return in, true
 					}
-					fmt.Println("!!!!!!!!!!!!! EVENT !!!!!!!!!!!!!!!", in.Type, obj.(*unstructured.Unstructured).UnstructuredContent())
 					return in, f(obj)
 				}), nil
 			},
