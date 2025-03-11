@@ -136,9 +136,40 @@ func ignoreErrCacheNotReady(err error) error {
 //+kubebuilder:rbac:groups=espejote.io,resources=managedresources/finalizers,verbs=update
 
 //+kubebuilder:rbac:groups="",resources=serviceaccounts/token,verbs=create
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+
+type EspejoteErrorType string
+
+const (
+	TriggerConfigurationError EspejoteErrorType = "TriggerConfigurationError"
+	TemplateError             EspejoteErrorType = "TemplateError"
+	ApplyError                EspejoteErrorType = "ApplyError"
+	ObjectError               EspejoteErrorType = "ObjectError"
+)
+
+type EspejoteError struct {
+	error
+	Type EspejoteErrorType
+}
+
+func (e EspejoteError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Type, e.error)
+}
+
+func newEspejoteError(err error, t EspejoteErrorType) EspejoteError {
+	return EspejoteError{err, t}
+}
 
 func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) (ctrl.Result, error) {
-	l := log.FromContext(ctx).WithName("ManagedResourceReconciler.Reconcile").WithValues("request", req)
+	// Since we are not using the default builder we need to add the request to the context ourselves
+	ctx = log.IntoContext(ctx, log.FromContext(ctx).WithValues("request", req))
+
+	res, recErr := r.reconcile(ctx, req)
+	return res, multierr.Combine(recErr, r.recordReconcileErr(ctx, req.NamespacedName, recErr))
+}
+
+func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) (ctrl.Result, error) {
+	l := log.FromContext(ctx).WithName("ManagedResourceReconciler.reconcile").WithValues("request", req)
 	l.Info("Reconciling ManagedResource")
 
 	var managedResource espejotev1alpha1.ManagedResource
@@ -152,11 +183,11 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 
 	ci, err := r.cacheFor(ctx, managedResource)
 	if err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, newEspejoteError(err, TriggerConfigurationError)
 	}
 	ready, err := ci.AllCachesReady()
 	if err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, newEspejoteError(err, TriggerConfigurationError)
 	}
 	if !ready {
 		return ctrl.Result{Requeue: true}, nil
@@ -243,7 +274,7 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 
 	rendered, err := jvm.EvaluateAnonymousSnippet("template", managedResource.Spec.Template)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to render template: %w", err)
+		return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to render template: %w", err), TemplateError)
 	}
 	rendered = strings.Trim(rendered, " \t\r\n")
 
@@ -251,32 +282,32 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 	if rendered != "" && strings.HasPrefix(rendered, "{") {
 		obj := &unstructured.Unstructured{}
 		if err := obj.UnmarshalJSON([]byte(rendered)); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to unmarshal rendered template: %w", err)
+			return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), ObjectError)
 		}
 		objects = append(objects, obj)
 	} else if rendered != "" && strings.HasPrefix(rendered, "[") {
 		// RawMessage is used to delay unmarshaling
 		var list []encjson.RawMessage
 		if err := json.Unmarshal([]byte(rendered), &list); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to unmarshal rendered template: %w", err)
+			return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), ObjectError)
 		}
 		for _, raw := range list {
 			obj := &unstructured.Unstructured{}
 			if err := obj.UnmarshalJSON(raw); err != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to unmarshal rendered template: %w", err)
+				return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), ObjectError)
 			}
 			objects = append(objects, obj)
 		}
 	} else if rendered == jsonNull {
 		l.V(1).Info("rendered template returned null")
 	} else {
-		return ctrl.Result{}, fmt.Errorf("unexpected rendered template: %q", rendered)
+		return ctrl.Result{}, newEspejoteError(fmt.Errorf("unexpected rendered template: %q", rendered), ObjectError)
 	}
 
 	for _, obj := range objects {
 		namespaced, err := apiutil.IsObjectNamespaced(obj, r.Scheme, r.mapper)
 		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to determine if object is namespaced: %w", err)
+			return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to determine if object is namespaced: %w", err), ObjectError)
 		}
 		if namespaced && obj.GetNamespace() == "" {
 			obj.SetNamespace(managedResource.GetNamespace())
@@ -291,10 +322,30 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 		}
 	}
 	if err := multierr.Combine(applyErrs...); err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, newEspejoteError(err, ApplyError)
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, mr types.NamespacedName, recErr error) error {
+	if recErr == nil {
+		return nil
+	}
+
+	var managedResource espejotev1alpha1.ManagedResource
+	if err := r.Get(ctx, mr, &managedResource); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+
+	errType := "ReconcileError"
+	var espejoteErr EspejoteError
+	if errors.As(recErr, &espejoteErr) {
+		errType = string(espejoteErr.Type)
+	}
+
+	r.Recorder.Eventf(&managedResource, "Warning", errType, "Reconcile error: %s", recErr.Error())
+	return nil
 }
 
 var ErrCacheNotReady = errors.New("cache not ready")

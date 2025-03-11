@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,16 +31,17 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 
 	ctx := log.IntoContext(t.Context(), testr.New(t))
 
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme: scheme,
+	})
+	require.NoError(t, err)
 	subject := &ManagedResourceReconciler{
 		Client:                  c,
 		Scheme:                  c.Scheme(),
 		ControllerLifetimeCtx:   ctx,
 		JsonnetLibraryNamespace: "jsonnetlibs",
+		Recorder:                mgr.GetEventRecorderFor("managed-resource-controller"),
 	}
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: scheme,
-	})
-	require.NoError(t, err)
 	require.NoError(t, subject.Setup(cfg, mgr))
 
 	mgrCtx, mgrCancel := context.WithCancel(ctx)
@@ -128,7 +130,7 @@ if esp.triggerKnown() && trigger.kind == "Namespace" then [{
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
-	t.Run("with filtered context", func(t *testing.T) {
+	t.Run("reconfigure filtered contexts", func(t *testing.T) {
 		t.Parallel()
 
 		testns := tmpNamespace(t, c)
@@ -240,6 +242,44 @@ local cms = esp.getContext("cms");
 		var cmToDelete2 corev1.ConfigMap
 		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test3"}, &cmToDelete2))
 		require.NoError(t, c.Delete(ctx, &cmToDelete2))
+	})
+
+	t.Run("template error", func(t *testing.T) {
+		t.Parallel()
+
+		testns := tmpNamespace(t, c)
+
+		saForManagedResource := &corev1.ServiceAccount{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "default",
+				Namespace: testns,
+			},
+		}
+		require.NoError(t, c.Create(ctx, saForManagedResource))
+
+		res := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Template: `glug`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, res))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var events corev1.EventList
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), client.MatchingFieldsSelector{
+				Selector: fields.AndSelectors(
+					fields.OneTermEqualSelector("involvedObject.kind", "ManagedResource"),
+					fields.OneTermEqualSelector("involvedObject.name", res.Name),
+				),
+			}))
+			assert.Len(t, events.Items, 1)
+			assert.Equal(t, "Warning", events.Items[0].Type)
+			assert.Contains(t, events.Items[0].Message, TemplateError)
+		}, 5*time.Second, 100*time.Millisecond)
 	})
 }
 
