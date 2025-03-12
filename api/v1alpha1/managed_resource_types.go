@@ -17,8 +17,9 @@ type ManagedResourceSpec struct {
 	// Context defines the context for the ManagedResource
 	Context []ManagedResourceContext `json:"context,omitempty"`
 
-	// ServiceAccountRef is the service account to be used to run the controllers associated with this configuration
-	// The default is the namespace's default service account
+	// ServiceAccountRef is the service account this managed resource runs as.
+	// The service account must have the necessary permissions to manage the resources referenced in the template.
+	// If not set, the namespace's default service account is used.
 	ServiceAccountRef corev1.LocalObjectReference `json:"serviceAccountRef,omitempty"`
 
 	// Template defines the template for the ManagedResource
@@ -31,6 +32,8 @@ type ManagedResourceSpec struct {
 	// - "lib/<NAME>/<KEY>" libraries in the shared library namespace. The name corresponds to the name of the JsonnetLibrary object and the key to the key in the data field.
 	//   The namespace is configured at controller startup and normally points to the namespace of the controller.
 	// - "<NAME>/<KEY>" libraries in the same namespace as the ManagedResource. The name corresponds to the name of the JsonnetLibrary object and the key to the key in the data field.
+	// The template can return a single object, a list of objects, or null. Everything else is considered an error.
+	// Namespaced objects default to the namespace of the ManagedResource.
 	Template string `json:"template,omitempty"`
 
 	// ApplyOptions defines the options for applying the ManagedResource
