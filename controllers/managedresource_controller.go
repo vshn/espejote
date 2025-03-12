@@ -196,82 +196,42 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 
 	jvm := jsonnet.MakeVM()
 	jvm.Importer(&MultiImporter{
-		Importers: []jsonnet.Importer{
-			&jsonnet.MemoryImporter{
-				Data: map[string]jsonnet.Contents{
-					"espejote.libsonnet": jsonnet.MakeContents(espejoteLibsonnet),
+		Importers: []MultiImporterConfig{
+			{
+				Importer: &jsonnet.MemoryImporter{
+					Data: map[string]jsonnet.Contents{
+						"espejote.libsonnet": jsonnet.MakeContents(espejoteLibsonnet),
+					},
 				},
 			},
-			&ManifestImporter{
-				Client:    r.Client,
-				Namespace: r.JsonnetLibraryNamespace,
+			{
+				TrimPathPrefix: "lib/",
+				Importer: &ManifestImporter{
+					Client:    r.Client,
+					Namespace: r.JsonnetLibraryNamespace,
+				},
+			},
+			{
+				Importer: &ManifestImporter{
+					Client:    r.Client,
+					Namespace: managedResource.GetNamespace(),
+				},
 			},
 		},
 	})
 
-	triggerJSON := jsonNull
-	if req.TriggerInfo.WatchResource != (WatchResource{}) {
-		var triggerObj unstructured.Unstructured
-		triggerObj.SetGroupVersionKind(schema.GroupVersionKind{
-			Group:   req.TriggerInfo.WatchResource.Group,
-			Version: req.TriggerInfo.WatchResource.APIVersion,
-			Kind:    req.TriggerInfo.WatchResource.Kind,
-		})
-		tc, ok := ci.triggerCaches[req.TriggerInfo.TriggerIndex]
-		if !ok {
-			// Should not happen as we checked all cache configuration before
-			return ctrl.Result{}, fmt.Errorf("cache for trigger %d not found", req.TriggerInfo.TriggerIndex)
-		}
-		err := tc.cache.Get(ctx, types.NamespacedName{Namespace: req.TriggerInfo.WatchResource.Namespace, Name: req.TriggerInfo.WatchResource.Name}, &triggerObj)
-		if err == nil {
-			triggerJSONBytes, err := json.Marshal(triggerObj.UnstructuredContent())
-			if err != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to marshal trigger info: %w", err)
-			}
-			triggerJSON = string(triggerJSONBytes)
-		} else if apierrors.IsNotFound(err) {
-			l.Info("trigger object not found, was deleted", "trigger", req.TriggerInfo.WatchResource)
-		} else {
-			return ctrl.Result{}, fmt.Errorf("failed to get trigger object: %w", err)
-		}
+	triggerJSON, err := r.renderTriggers(ctx, ci, req)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to render triggers: %w", err)
 	}
+	// Mark as internal so we can change the implementation later, to make it more efficient for example
 	jvm.ExtCode("__internal_use_espejote_lib_trigger", triggerJSON)
 
-	contexts := map[string]any{}
-	for i, con := range managedResource.Spec.Context {
-		if con.Resource.APIVersion == "" {
-			continue
-		}
-		cc, ok := ci.contextCaches[i]
-		if !ok {
-			// Should not happen as we checked all cache configuration before
-			return ctrl.Result{}, fmt.Errorf("cache for context %d not found", i)
-		}
-		var contextObj unstructured.Unstructured
-		contextObj.SetGroupVersionKind(schema.GroupVersionKind{
-			Group:   con.Resource.Group,
-			Version: con.Resource.APIVersion,
-			Kind:    con.Resource.Kind,
-		})
-		contextObjs, err := contextObj.ToList()
-		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to build context list: %w", err)
-		}
-		if err := cc.cache.List(ctx, contextObjs); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to list context objects: %w", err)
-		}
-
-		unwrapped := make([]any, len(contextObjs.Items))
-		for i, obj := range contextObjs.Items {
-			unwrapped[i] = obj.UnstructuredContent()
-		}
-		contexts[con.Def] = unwrapped
-	}
-	contextJSON, err := json.Marshal(contexts)
+	contextJSON, err := r.renderContexts(ctx, ci, managedResource)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to marshal contexts: %w", err)
+		return ctrl.Result{}, fmt.Errorf("failed to render contexts: %w", err)
 	}
-	jvm.ExtCode("__internal_use_espejote_lib_context", string(contextJSON))
+	jvm.ExtCode("__internal_use_espejote_lib_context", contextJSON)
 
 	rendered, err := jvm.EvaluateAnonymousSnippet("template", managedResource.Spec.Template)
 	if err != nil {
@@ -279,32 +239,12 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 	}
 	rendered = strings.Trim(rendered, " \t\r\n")
 
-	var objects []client.Object
-	if rendered != "" && strings.HasPrefix(rendered, "{") {
-		obj := &unstructured.Unstructured{}
-		if err := obj.UnmarshalJSON([]byte(rendered)); err != nil {
-			return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), TemplateReturnError)
-		}
-		objects = append(objects, obj)
-	} else if rendered != "" && strings.HasPrefix(rendered, "[") {
-		// RawMessage is used to delay unmarshaling
-		var list []encjson.RawMessage
-		if err := json.Unmarshal([]byte(rendered), &list); err != nil {
-			return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), TemplateReturnError)
-		}
-		for _, raw := range list {
-			obj := &unstructured.Unstructured{}
-			if err := obj.UnmarshalJSON(raw); err != nil {
-				return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), TemplateReturnError)
-			}
-			objects = append(objects, obj)
-		}
-	} else if rendered == jsonNull {
-		l.V(1).Info("rendered template returned null")
-	} else {
-		return ctrl.Result{}, newEspejoteError(fmt.Errorf("unexpected output from rendered template: %q", rendered), TemplateReturnError)
+	objects, err := r.unpackRenderedObjects(ctx, rendered)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to unpack rendered objects: %w", err)
 	}
 
+	// ensure namespaced objects have a namespace set
 	for _, obj := range objects {
 		namespaced, err := apiutil.IsObjectNamespaced(obj, r.Scheme, r.mapper)
 		if err != nil {
@@ -315,6 +255,7 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 		}
 	}
 
+	// apply objects returned by the template
 	fieldValidation := managedResource.Spec.ApplyOptions.FieldValidation
 	if fieldValidation == "" {
 		fieldValidation = "Strict"
@@ -329,7 +270,6 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 	if managedResource.Spec.ApplyOptions.Force {
 		applyOpts = append(applyOpts, client.ForceOwnership)
 	}
-
 	applyErrs := make([]error, 0, len(objects))
 	for _, obj := range objects {
 		err := r.Client.Patch(ctx, obj, client.Apply, applyOpts...)
@@ -344,14 +284,21 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 	return ctrl.Result{}, nil
 }
 
+// recordReconcileErr records the given error as an event on the ManagedResource and updates the status accordingly.
+// If the error is nil, the status is updated to "Ready".
 func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, mr types.NamespacedName, recErr error) error {
-	if recErr == nil {
-		return nil
-	}
-
 	var managedResource espejotev1alpha1.ManagedResource
 	if err := r.Get(ctx, mr, &managedResource); err != nil {
 		return client.IgnoreNotFound(err)
+	}
+
+	// record success status if no error
+	if recErr == nil {
+		if managedResource.Status.Status == "Ready" {
+			return nil
+		}
+		managedResource.Status.Status = "Ready"
+		return r.Status().Update(ctx, &managedResource)
 	}
 
 	errType := "ReconcileError"
@@ -361,12 +308,19 @@ func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, mr t
 	}
 
 	r.Recorder.Eventf(&managedResource, "Warning", errType, "Reconcile error: %s", recErr.Error())
-	return nil
+
+	if managedResource.Status.Status == errType {
+		return nil
+	}
+
+	managedResource.Status.Status = errType
+	return r.Status().Update(ctx, &managedResource)
 }
 
 var ErrCacheNotReady = errors.New("cache not ready")
 var ErrFailedSyncCache = errors.New("failed to sync cache")
 
+// stopAndRemoveCacheFor stops and removes the cache for the given ManagedResource.
 func (r *ManagedResourceReconciler) stopAndRemoveCacheFor(mr espejotev1alpha1.ManagedResource) {
 	k := client.ObjectKeyFromObject(&mr)
 
@@ -389,6 +343,9 @@ func (r *ManagedResourceReconciler) stopAndRemoveCacheFor(mr espejotev1alpha1.Ma
 	delete(r.caches, k)
 }
 
+// cacheFor returns the cache for the given ManagedResource.
+// A new cache is created if it does not exist yet or if the configuration changed.
+// The cache is stopped if the configuration changed.
 func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1alpha1.ManagedResource) (*instanceCache, error) {
 	l := log.FromContext(ctx).WithName("ManagedResourceReconciler.cacheFor")
 
@@ -510,6 +467,116 @@ func (r *ManagedResourceReconciler) Setup(cfg *rest.Config, mgr ctrl.Manager) er
 	return err
 }
 
+// renderTriggers renders the trigger information for the given Request.
+func (r *ManagedResourceReconciler) renderTriggers(ctx context.Context, ci *instanceCache, req Request) (string, error) {
+	triggerInfo := struct {
+		WatchResource encjson.RawMessage `json:"WatchResource,omitempty"`
+	}{}
+
+	if req.TriggerInfo.WatchResource != (WatchResource{}) {
+		var triggerObj unstructured.Unstructured
+		triggerObj.SetGroupVersionKind(schema.GroupVersionKind{
+			Group:   req.TriggerInfo.WatchResource.Group,
+			Version: req.TriggerInfo.WatchResource.APIVersion,
+			Kind:    req.TriggerInfo.WatchResource.Kind,
+		})
+		tc, ok := ci.triggerCaches[req.TriggerInfo.TriggerIndex]
+		if !ok {
+			// Should not happen as we checked all cache configuration before
+			return "", fmt.Errorf("cache for trigger %d not found", req.TriggerInfo.TriggerIndex)
+		}
+		err := tc.cache.Get(ctx, types.NamespacedName{Namespace: req.TriggerInfo.WatchResource.Namespace, Name: req.TriggerInfo.WatchResource.Name}, &triggerObj)
+		if err == nil {
+			triggerJSONBytes, err := json.Marshal(triggerObj.UnstructuredContent())
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal trigger info: %w", err)
+			}
+			triggerInfo.WatchResource = triggerJSONBytes
+		} else if apierrors.IsNotFound(err) {
+			log.FromContext(ctx).WithValues("trigger", req.TriggerInfo.WatchResource).Info("trigger object not found, was deleted")
+		} else {
+			return "", fmt.Errorf("failed to get trigger object: %w", err)
+		}
+	}
+
+	triggerJSON, err := json.Marshal(triggerInfo)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal trigger info: %w", err)
+	}
+	return string(triggerJSON), nil
+}
+
+// renderContexts renders the context information for the given ManagedResource.
+func (r *ManagedResourceReconciler) renderContexts(ctx context.Context, ci *instanceCache, managedResource espejotev1alpha1.ManagedResource) (string, error) {
+	contexts := map[string]any{}
+	for i, con := range managedResource.Spec.Context {
+		if con.Resource.APIVersion == "" {
+			continue
+		}
+		cc, ok := ci.contextCaches[i]
+		if !ok {
+			// Should not happen as we checked all cache configuration before
+			return "", fmt.Errorf("cache for context %d not found", i)
+		}
+		var contextObj unstructured.Unstructured
+		contextObj.SetGroupVersionKind(schema.GroupVersionKind{
+			Group:   con.Resource.Group,
+			Version: con.Resource.APIVersion,
+			Kind:    con.Resource.Kind,
+		})
+		contextObjs, err := contextObj.ToList()
+		if err != nil {
+			return "", fmt.Errorf("failed to build context list: %w", err)
+		}
+		if err := cc.cache.List(ctx, contextObjs); err != nil {
+			return "", fmt.Errorf("failed to list context objects: %w", err)
+		}
+
+		unwrapped := make([]any, len(contextObjs.Items))
+		for i, obj := range contextObjs.Items {
+			unwrapped[i] = obj.UnstructuredContent()
+		}
+		contexts[con.Def] = unwrapped
+	}
+	contextJSON, err := json.Marshal(contexts)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal contexts: %w", err)
+	}
+	return string(contextJSON), nil
+}
+
+// unpackRenderedObjects unpacks the rendered template into a list of client.Objects.
+// The rendered template can be a single object, a list of objects or null.
+func (r *ManagedResourceReconciler) unpackRenderedObjects(ctx context.Context, rendered string) ([]client.Object, error) {
+	var objects []client.Object
+	if rendered != "" && strings.HasPrefix(rendered, "{") {
+		obj := &unstructured.Unstructured{}
+		if err := obj.UnmarshalJSON([]byte(rendered)); err != nil {
+			return nil, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), TemplateReturnError)
+		}
+		objects = append(objects, obj)
+	} else if rendered != "" && strings.HasPrefix(rendered, "[") {
+		// RawMessage is used to delay unmarshaling
+		var list []encjson.RawMessage
+		if err := json.Unmarshal([]byte(rendered), &list); err != nil {
+			return nil, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), TemplateReturnError)
+		}
+		for _, raw := range list {
+			obj := &unstructured.Unstructured{}
+			if err := obj.UnmarshalJSON(raw); err != nil {
+				return nil, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), TemplateReturnError)
+			}
+			objects = append(objects, obj)
+		}
+	} else if rendered == jsonNull {
+		log.FromContext(ctx).Info("template returned null, no objects to apply")
+	} else {
+		return nil, newEspejoteError(fmt.Errorf("unexpected output from rendered template: %q", rendered), TemplateReturnError)
+	}
+
+	return objects, nil
+}
+
 // jwtTokenForSA returns a JWT token for the given service account.
 // The token is valid for 1 year.
 func (r *ManagedResourceReconciler) jwtTokenForSA(ctx context.Context, namespace, name string) (string, error) {
@@ -547,6 +614,8 @@ func (r *ManagedResourceReconciler) restConfigForManagedResource(ctx context.Con
 	return &config, nil
 }
 
+// newCacheForResourceAndRESTClient creates a new cache for the given ClusterResource and REST client.
+// The cache starts syncing in the background and is ready when CacheReady() is true on the returned cache.
 func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context.Context, cr espejotev1alpha1.ClusterResource, rc *rest.Config, defaultNamespace string) (client.Object, *definitionCache, error) {
 	watchTarget := &unstructured.Unstructured{}
 	watchTarget.SetGroupVersionKind(schema.GroupVersionKind{

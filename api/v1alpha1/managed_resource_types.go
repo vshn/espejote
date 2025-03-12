@@ -10,6 +10,9 @@ import (
 // ManagedResourceSpec defines the desired state of ManagedResource
 type ManagedResourceSpec struct {
 	// Triggers define the resources that trigger the reconciliation of the ManagedResource
+	// Trigger information will be injected when rendering the template.
+	// This can be used to only partially render the template based on the trigger.
+	// +optional
 	Triggers []ManagedResourceTrigger `json:"triggers,omitempty"`
 	// Context defines the context for the ManagedResource
 	Context []ManagedResourceContext `json:"context,omitempty"`
@@ -19,8 +22,18 @@ type ManagedResourceSpec struct {
 	ServiceAccountRef corev1.LocalObjectReference `json:"serviceAccountRef,omitempty"`
 
 	// Template defines the template for the ManagedResource
+	// The template is rendered using Jsonnet and the result is applied to the cluster.
+	// The template can reference the context and trigger information.
+	// All access to injected data should be done through the `espejote.libsonnet` import.
+	// The template can reference JsonnetLibrary objects by importing them.
+	// JsonnetLibrary objects have the following structure:
+	// - "espejote.libsonnet": The built in library for accessing the context and trigger information.
+	// - "lib/<NAME>/<KEY>" libraries in the shared library namespace. The name corresponds to the name of the JsonnetLibrary object and the key to the key in the data field.
+	//   The namespace is configured at controller startup and normally points to the namespace of the controller.
+	// - "<NAME>/<KEY>" libraries in the same namespace as the ManagedResource. The name corresponds to the name of the JsonnetLibrary object and the key to the key in the data field.
 	Template string `json:"template,omitempty"`
 
+	// ApplyOptions defines the options for applying the ManagedResource
 	ApplyOptions ApplyOptions `json:"applyOptions,omitempty"`
 }
 
@@ -51,7 +64,10 @@ type ApplyOptions struct {
 }
 
 type ManagedResourceTrigger struct {
-	// WatchResource defines one or multiple resources that trigger the reconciliation of the ManagedResource
+	// WatchResource defines one or multiple resources that trigger the reconciliation of the ManagedResource.
+	// Resource information is injected when rendering the template and can be retrieved using `(import "espejote.libsonnet").getTrigger()`.
+	// `local esp = import "espejote.libsonnet"; esp.triggerType() == esp.TriggerTypeWatchResource` will be true if the render was triggered by a definition in this block.
+	// +optional
 	WatchResource TriggerWatchResource `json:"watchResource,omitempty"`
 }
 
@@ -86,7 +102,7 @@ type TriggerWatchResource struct {
 	Name string `json:"name,omitempty"`
 	// Namespace for the resources that should be watched.
 	// If not set, the namespace of the ManagedResource is used.
-	// Can be set to empty string to watch all namespaces.
+	// Can be explicitly set to empty string to watch all namespaces.
 	Namespace *string `json:"namespace,omitempty"`
 
 	// LabelSelector can be used to filter the resources that should be watched.
@@ -152,8 +168,11 @@ func (t TriggerWatchResource) String() string {
 
 type ManagedResourceContext struct {
 	// Def is the name of the context definition. The context can be referenced in the template by this name.
+	// +kubebuilder:validation:MinLength=1
 	Def string `json:"def"`
 
+	// Resource defines the resource that should be added to the context.
+	// Adds a list of zero or more resources to the context.
 	Resource ContextResource `json:"resource,omitempty"`
 }
 
@@ -238,6 +257,9 @@ func (t ContextResource) String() string {
 
 // ManagedResourceStatus defines the observed state of ManagedResource
 type ManagedResourceStatus struct {
+	// Status reports the last overall status of the ManagedResource
+	// More information can be found by inspecting the ManagedResource's events with either `kubectl describe` or `kubectl get events`.
+	Status string `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true

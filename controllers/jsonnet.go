@@ -21,14 +21,29 @@ var espejoteLibsonnet string
 // It tries each importer in order until one succeeds.
 // If all importers fail, it returns an error combining all errors.
 type MultiImporter struct {
-	Importers []jsonnet.Importer
+	Importers []MultiImporterConfig
+}
+
+type MultiImporterConfig struct {
+	Importer       jsonnet.Importer
+	TrimPathPrefix string
 }
 
 // Import fetches from the first importer that succeeds.
 func (im *MultiImporter) Import(importedFrom, importedPath string) (contents jsonnet.Contents, foundAt string, err error) {
 	var errs []error
 	for _, i := range im.Importers {
-		contents, foundAt, err := i.Import(importedFrom, importedPath)
+		path := importedPath
+		if i.TrimPathPrefix != "" {
+			if !strings.HasPrefix(path, i.TrimPathPrefix) {
+				continue
+			}
+			path = path[len(i.TrimPathPrefix):]
+		}
+		contents, foundAt, err := i.Importer.Import(importedFrom, path)
+		if i.TrimPathPrefix != "" {
+			foundAt = i.TrimPathPrefix + foundAt
+		}
 		if err == nil {
 			return contents, foundAt, nil
 		}

@@ -22,6 +22,11 @@ import (
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
 )
 
+// Test_ManagedResourceReconciler_Reconcile tests the ManagedResourceReconciler.
+// For efficiency, the tests are run in parallel and there is only one instance of the controller and api-server.
+// It is in the responsibility of the test to ensure that the resources do not conflict with each other.
+// Tests can use the `tmpNamespace()“ function to create a new namespace that is guaranteed to not conflict with namespaces of other tests.
+// Special care must be taken when modifying cluster scoped resources, for example by prefixing the resource names with the name returned from `tmpNamespace()`.
 func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 	log.SetLogger(testr.New(t))
 	scheme, cfg := setupEnvtestEnv(t)
@@ -72,6 +77,18 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 			},
 		}
 		require.NoError(t, c.Create(ctx, jsonnetLib))
+		localJsonnetLib := &espejotev1alpha1.JsonnetLibrary{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.JsonnetLibrarySpec{
+				Data: map[string]string{
+					"test.jsonnet": `{hello: "local-hello"}`,
+				},
+			},
+		}
+		require.NoError(t, c.Create(ctx, localJsonnetLib))
 
 		res := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
@@ -90,10 +107,11 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 				},
 				Template: `
 local esp = import "espejote.libsonnet";
-local test = import "test/test.jsonnet";
+local test = import "lib/test/test.jsonnet";
+local localTest = import "test/test.jsonnet";
 local trigger = esp.getTrigger();
 
-if esp.triggerKnown() && trigger.kind == "Namespace" then [{
+if esp.triggerType() == esp.TriggerTypeWatchResource && trigger.kind == "Namespace" then [{
 	apiVersion: 'v1',
 	kind: 'ConfigMap',
 	metadata: {
@@ -101,6 +119,7 @@ if esp.triggerKnown() && trigger.kind == "Namespace" then [{
 		namespace: trigger.metadata.name,
 		annotations: {
 			"espejote.vshn.net/hello": test.hello,
+			"espejote.vshn.net/local-hello": localTest.hello,
 		},
 	},
 }]
@@ -120,6 +139,7 @@ if esp.triggerKnown() && trigger.kind == "Namespace" then [{
 			var cm corev1.ConfigMap
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: "test"}, &cm))
 			assert.Equal(t, "world", cm.Annotations["espejote.vshn.net/hello"])
+			assert.Equal(t, "local-hello", cm.Annotations["espejote.vshn.net/local-hello"])
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
@@ -424,6 +444,7 @@ local cms = esp.getContext("cms");
 		}, 5*time.Second, 100*time.Millisecond)
 
 		t.Log("force updating the resource and waiting for a successful update")
+		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
 		mr.Spec.ApplyOptions.Force = true
 		require.NoError(t, c.Update(ctx, mr))
 
@@ -493,6 +514,7 @@ local cms = esp.getContext("cms");
 		}, 5*time.Second, 100*time.Millisecond)
 
 		t.Log("changing the field manager to the original field manager and waiting for a successful update")
+		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
 		mr.Spec.ApplyOptions.FieldManager = origOwner
 		require.NoError(t, c.Update(ctx, mr))
 
@@ -543,10 +565,11 @@ local cms = esp.getContext("cms");
 		}, 5*time.Second, 100*time.Millisecond)
 
 		t.Log("ignoring dropped field and waiting for a successful update")
+		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
 		mr.Spec.ApplyOptions.FieldValidation = "Ignore"
 		require.NoError(t, c.Update(ctx, mr))
 
-		// Error should always be is not found
+		// Error should always be IsNotFound, see head of test as for why
 		require.Never(t, func() bool {
 			return !apierrors.IsNotFound(c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, new(corev1.ConfigMap)))
 		}, 2*time.Second, 100*time.Millisecond)
