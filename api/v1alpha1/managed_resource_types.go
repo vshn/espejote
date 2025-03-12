@@ -20,6 +20,34 @@ type ManagedResourceSpec struct {
 
 	// Template defines the template for the ManagedResource
 	Template string `json:"template,omitempty"`
+
+	ApplyOptions ApplyOptions `json:"applyOptions,omitempty"`
+}
+
+type ApplyOptions struct {
+	// FieldManager is the field manager to use when applying the ManagedResource
+	// If not set, the field manager is set to the name of the resource with `managed-resource` prefix
+	// +optional
+	FieldManager string `json:"fieldManager,omitempty"`
+
+	// Force is going to "force" Apply requests. It means user will
+	// re-acquire conflicting fields owned by other people.
+	// +optional
+	Force bool `json:"force,omitempty"`
+
+	// fieldValidation instructs the managed resource on how to handle
+	// objects containing unknown or duplicate fields. Valid values are:
+	// - Ignore: This will ignore any unknown fields that are silently
+	// dropped from the object, and will ignore all but the last duplicate
+	// field that the decoder encounters.
+	// - Strict: This will fail the request with a BadRequest error if
+	// any unknown fields would be dropped from the object, or if any
+	// duplicate fields are present. The error returned will contain
+	// all unknown and duplicate fields encountered.
+	// Defaults to "Strict".
+	// +kubebuilder:validation:Enum=Ignore;Strict
+	// +optional
+	FieldValidation string `json:"fieldValidation,omitempty"`
 }
 
 type ManagedResourceTrigger struct {

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
@@ -72,14 +73,6 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		}
 		require.NoError(t, c.Create(ctx, jsonnetLib))
 
-		saForManagedResource := &corev1.ServiceAccount{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "default",
-				Namespace: testns,
-			},
-		}
-		require.NoError(t, c.Create(ctx, saForManagedResource))
-
 		res := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test",
@@ -134,14 +127,6 @@ if esp.triggerKnown() && trigger.kind == "Namespace" then [{
 		t.Parallel()
 
 		testns := tmpNamespace(t, c)
-
-		saForManagedResource := &corev1.ServiceAccount{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "default",
-				Namespace: testns,
-			},
-		}
-		require.NoError(t, c.Create(ctx, saForManagedResource))
 
 		for i := 0; i < 500; i++ {
 			cm := &corev1.ConfigMap{
@@ -249,15 +234,7 @@ local cms = esp.getContext("cms");
 
 		testns := tmpNamespace(t, c)
 
-		saForManagedResource := &corev1.ServiceAccount{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "default",
-				Namespace: testns,
-			},
-		}
-		require.NoError(t, c.Create(ctx, saForManagedResource))
-
-		res := &espejotev1alpha1.ManagedResource{
+		mr := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test",
 				Namespace: testns,
@@ -266,23 +243,326 @@ local cms = esp.getContext("cms");
 				Template: `glug`,
 			},
 		}
-		require.NoError(t, c.Create(ctx, res))
+		require.NoError(t, c.Create(ctx, mr))
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var events corev1.EventList
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), client.MatchingFieldsSelector{
-				Selector: fields.AndSelectors(
-					fields.OneTermEqualSelector("involvedObject.kind", "ManagedResource"),
-					fields.OneTermEqualSelector("involvedObject.name", res.Name),
-				),
-			}))
-			assert.Len(t, events.Items, 1)
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorFor(mr.Name)))
+			require.Len(t, events.Items, 1)
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, TemplateError)
 		}, 5*time.Second, 100*time.Millisecond)
 	})
+
+	t.Run("service account does not exist", func(t *testing.T) {
+		t.Parallel()
+
+		testns := tmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Template: `[]`,
+				ServiceAccountRef: corev1.LocalObjectReference{
+					Name: "does-not-exist",
+				},
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var events corev1.EventList
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorFor(mr.Name)))
+			require.Len(t, events.Items, 1)
+			assert.Equal(t, "Warning", events.Items[0].Type)
+			assert.Contains(t, events.Items[0].Message, ServiceAccountError)
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
+	t.Run("invalid template return", func(t *testing.T) {
+		t.Parallel()
+
+		testns := tmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Template: `"glug"`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var events corev1.EventList
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorFor(mr.Name)))
+			require.Len(t, events.Items, 1)
+			assert.Equal(t, "Warning", events.Items[0].Type)
+			assert.Contains(t, events.Items[0].Message, TemplateReturnError)
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
+	t.Run("object with unknown api returned", func(t *testing.T) {
+		t.Parallel()
+
+		testns := tmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Template: `{apiVersion: "v1", kind: "DoesNotExist"}`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var events corev1.EventList
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorFor(mr.Name)))
+			require.Len(t, events.Items, 1)
+			assert.Equal(t, "Warning", events.Items[0].Type)
+			assert.Contains(t, events.Items[0].Message, ApplyError)
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
+	t.Run("trigger api is not registered", func(t *testing.T) {
+		t.Parallel()
+
+		testns := tmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
+					{
+						WatchResource: espejotev1alpha1.TriggerWatchResource{
+							Kind:       "WhatWouldThisControllerDo",
+							APIVersion: "v1",
+						},
+					},
+				},
+				Template: `[]`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var events corev1.EventList
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorFor(mr.Name)))
+			require.Len(t, events.Items, 1)
+			assert.Equal(t, "Warning", events.Items[0].Type)
+			assert.Contains(t, events.Items[0].Message, TriggerConfigurationError)
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
+	t.Run("force ownership", func(t *testing.T) {
+		t.Parallel()
+
+		testns := tmpNamespace(t, c)
+
+		cmToPatch := &corev1.ConfigMap{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "v1",
+				Kind:       "ConfigMap",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Data: map[string]string{
+				"test": "test",
+			},
+		}
+		const origOwner = "other-owner"
+		require.NoError(t, c.Patch(ctx, cmToPatch, client.Apply, client.FieldOwner(origOwner)))
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Template: `{
+					apiVersion: "v1",
+					kind: "ConfigMap",
+					metadata: {
+						name: "test",
+						namespace: "` + testns + `",
+					},
+					data: {
+						test: "updated",
+					},
+				}`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		t.Log("waiting for the conflict event")
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var events corev1.EventList
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorFor(mr.Name)))
+			require.Len(t, events.Items, 1)
+			assert.Equal(t, "Warning", events.Items[0].Type)
+			assert.Contains(t, events.Items[0].Message, ApplyError)
+			assert.Contains(t, events.Items[0].Message, "conflict")
+			assert.Contains(t, events.Items[0].Message, origOwner)
+			assert.Contains(t, events.Items[0].Message, ".data.test")
+
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			assert.Equal(t, "test", cm.Data["test"])
+		}, 5*time.Second, 100*time.Millisecond)
+
+		t.Log("force updating the resource and waiting for a successful update")
+		mr.Spec.ApplyOptions.Force = true
+		require.NoError(t, c.Update(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			assert.Equal(t, "updated", cm.Data["test"])
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
+	t.Run("override field manager", func(t *testing.T) {
+		t.Parallel()
+
+		testns := tmpNamespace(t, c)
+
+		cmToPatch := &corev1.ConfigMap{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "v1",
+				Kind:       "ConfigMap",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Data: map[string]string{
+				"test": "test",
+			},
+		}
+		const origOwner = "other-owner"
+		require.NoError(t, c.Patch(ctx, cmToPatch, client.Apply, client.FieldOwner(origOwner)))
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Template: `{
+					apiVersion: "v1",
+					kind: "ConfigMap",
+					metadata: {
+						name: "test",
+						namespace: "` + testns + `",
+					},
+					data: {
+						test: "updated",
+					},
+				}`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		t.Log("waiting for the conflict event")
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var events corev1.EventList
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorFor(mr.Name)))
+			require.Len(t, events.Items, 1)
+			assert.Equal(t, "Warning", events.Items[0].Type)
+			assert.Contains(t, events.Items[0].Message, ApplyError)
+			assert.Contains(t, events.Items[0].Message, "conflict")
+			assert.Contains(t, events.Items[0].Message, origOwner)
+			assert.Contains(t, events.Items[0].Message, ".data.test")
+
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			assert.Equal(t, "test", cm.Data["test"])
+		}, 5*time.Second, 100*time.Millisecond)
+
+		t.Log("changing the field manager to the original field manager and waiting for a successful update")
+		mr.Spec.ApplyOptions.FieldManager = origOwner
+		require.NoError(t, c.Update(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			assert.Equal(t, "updated", cm.Data["test"])
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
+	t.Run("field validation Ignore", func(t *testing.T) {
+		t.Parallel()
+		t.Log("field validation Ignore seems to have no effect on the apply process. This test is here to document this behavior and see if the behavior changes in the future.")
+
+		testns := tmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Template: `{
+					apiVersion: "v1",
+					kind: "ConfigMap",
+					metadata: {
+						name: "test",
+						namespace: "` + testns + `",
+					},
+					data: {
+						test: "test",
+					},
+					typo: "what what",
+				}`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		t.Log("waiting for the validation error event")
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var events corev1.EventList
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorFor(mr.Name)))
+			require.Len(t, events.Items, 1)
+			assert.Equal(t, "Warning", events.Items[0].Type)
+			assert.Contains(t, events.Items[0].Message, ApplyError)
+			assert.Contains(t, events.Items[0].Message, ".typo")
+			assert.Contains(t, events.Items[0].Message, "field not declared")
+		}, 5*time.Second, 100*time.Millisecond)
+
+		t.Log("ignoring dropped field and waiting for a successful update")
+		mr.Spec.ApplyOptions.FieldValidation = "Ignore"
+		require.NoError(t, c.Update(ctx, mr))
+
+		// Error should always be is not found
+		require.Never(t, func() bool {
+			return !apierrors.IsNotFound(c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, new(corev1.ConfigMap)))
+		}, 2*time.Second, 100*time.Millisecond)
+	})
 }
 
+func eventSelectorFor(managedResourceName string) client.ListOption {
+	return client.MatchingFieldsSelector{
+		Selector: fields.AndSelectors(
+			fields.OneTermEqualSelector("involvedObject.kind", "ManagedResource"),
+			fields.OneTermEqualSelector("involvedObject.name", managedResourceName),
+		),
+	}
+}
+
+// tmpNamespace creates a new namespace, with default service account, with a generated name and registers a cleanup function to delete it.
 func tmpNamespace(t *testing.T, c client.Client) string {
 	t.Helper()
 
@@ -294,7 +574,16 @@ func tmpNamespace(t *testing.T, c client.Client) string {
 			},
 		},
 	}
-	require.NoError(t, c.Create(context.Background(), ns))
+	require.NoError(t, c.Create(t.Context(), ns))
+
+	defaultSA := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "default",
+			Namespace: ns.Name,
+		},
+	}
+	require.NoError(t, c.Create(t.Context(), defaultSA))
+
 	t.Cleanup(func() {
 		require.NoError(t, c.Delete(context.Background(), ns))
 	})

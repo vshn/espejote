@@ -141,10 +141,11 @@ func ignoreErrCacheNotReady(err error) error {
 type EspejoteErrorType string
 
 const (
+	ServiceAccountError       EspejoteErrorType = "ServiceAccountError"
 	TriggerConfigurationError EspejoteErrorType = "TriggerConfigurationError"
 	TemplateError             EspejoteErrorType = "TemplateError"
 	ApplyError                EspejoteErrorType = "ApplyError"
-	ObjectError               EspejoteErrorType = "ObjectError"
+	TemplateReturnError       EspejoteErrorType = "TemplateReturnError"
 )
 
 type EspejoteError struct {
@@ -282,41 +283,56 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 	if rendered != "" && strings.HasPrefix(rendered, "{") {
 		obj := &unstructured.Unstructured{}
 		if err := obj.UnmarshalJSON([]byte(rendered)); err != nil {
-			return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), ObjectError)
+			return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), TemplateReturnError)
 		}
 		objects = append(objects, obj)
 	} else if rendered != "" && strings.HasPrefix(rendered, "[") {
 		// RawMessage is used to delay unmarshaling
 		var list []encjson.RawMessage
 		if err := json.Unmarshal([]byte(rendered), &list); err != nil {
-			return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), ObjectError)
+			return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), TemplateReturnError)
 		}
 		for _, raw := range list {
 			obj := &unstructured.Unstructured{}
 			if err := obj.UnmarshalJSON(raw); err != nil {
-				return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), ObjectError)
+				return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), TemplateReturnError)
 			}
 			objects = append(objects, obj)
 		}
 	} else if rendered == jsonNull {
 		l.V(1).Info("rendered template returned null")
 	} else {
-		return ctrl.Result{}, newEspejoteError(fmt.Errorf("unexpected rendered template: %q", rendered), ObjectError)
+		return ctrl.Result{}, newEspejoteError(fmt.Errorf("unexpected output from rendered template: %q", rendered), TemplateReturnError)
 	}
 
 	for _, obj := range objects {
 		namespaced, err := apiutil.IsObjectNamespaced(obj, r.Scheme, r.mapper)
 		if err != nil {
-			return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to determine if object is namespaced: %w", err), ObjectError)
+			return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to determine if object is namespaced: %w", err), ApplyError)
 		}
 		if namespaced && obj.GetNamespace() == "" {
 			obj.SetNamespace(managedResource.GetNamespace())
 		}
 	}
 
+	fieldValidation := managedResource.Spec.ApplyOptions.FieldValidation
+	if fieldValidation == "" {
+		fieldValidation = "Strict"
+	} else {
+		l.Info("using custom field validation", "validation", fieldValidation)
+	}
+	fieldOwner := managedResource.Spec.ApplyOptions.FieldManager
+	if fieldOwner == "" {
+		fieldOwner = fmt.Sprintf("managed-resource:%s", managedResource.GetName())
+	}
+	applyOpts := []client.PatchOption{client.FieldValidation(fieldValidation), client.FieldOwner(fieldOwner)}
+	if managedResource.Spec.ApplyOptions.Force {
+		applyOpts = append(applyOpts, client.ForceOwnership)
+	}
+
 	applyErrs := make([]error, 0, len(objects))
 	for _, obj := range objects {
-		err := r.Client.Patch(ctx, obj, client.Apply, client.ForceOwnership, client.FieldOwner("managed-resource-controller"))
+		err := r.Client.Patch(ctx, obj, client.Apply, applyOpts...)
 		if err != nil {
 			applyErrs = append(applyErrs, fmt.Errorf("failed to apply object %q %q: %w", obj.GetObjectKind(), obj.GetName(), err))
 		}
@@ -503,7 +519,7 @@ func (r *ManagedResourceReconciler) jwtTokenForSA(ctx context.Context, namespace
 		},
 	}, metav1.CreateOptions{})
 	if err != nil {
-		return "", fmt.Errorf("token request for %q failed: %w", strings.Join([]string{"system:serviceaccount", namespace, name}, ":"), err)
+		return "", newEspejoteError(fmt.Errorf("token request for %q failed: %w", strings.Join([]string{"system:serviceaccount", namespace, name}, ":"), err), ServiceAccountError)
 	}
 
 	return treq.Status.Token, nil
