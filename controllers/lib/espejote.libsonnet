@@ -13,4 +13,24 @@ local triggerTypeWatchResource = 'WatchResource';
 
   // Gets the context object. Always a non-null object with the definition as keys.
   context: function() context,
+
+  // Marks an object for deletion.
+  markForDelete:
+    function(
+      obj,
+      gracePeriodSeconds=null,
+      propagationPolicy=null,
+      preconditionUID=null,
+      preconditionResourceVersion=null,
+    ) obj {
+      local allowedDeletionPropagations = [null, 'Background', 'Foreground', 'Orphan'],
+      assert std.member(allowedDeletionPropagations, propagationPolicy) : 'propagationPolicy must be one of %s, is: %s' % [std.manifestJsonMinified(allowedDeletionPropagations), propagationPolicy],
+      __internal_use_espejote_lib_deletion: std.prune({
+        delete: true,
+        gracePeriodSeconds: gracePeriodSeconds,
+        propagationPolicy: propagationPolicy,
+        preconditionUID: preconditionUID,
+        preconditionResourceVersion: preconditionResourceVersion,
+      }),
+    },
 }
