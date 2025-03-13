@@ -1,0 +1,312 @@
+// Generated documentation. Please do not edit.
+:anchor_prefix: k8s-api
+
+[id="{p}-api-reference"]
+== API Reference
+
+.Packages
+- xref:{anchor_prefix}-espejote-io-v1alpha1[$$espejote.io/v1alpha1$$]
+
+
+[id="{anchor_prefix}-espejote-io-v1alpha1"]
+=== espejote.io/v1alpha1
+
+Package v1alpha1 contains API Schema definitions for the managedupgrade v1alpha1 API group
+
+.Resource Types
+- xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-jsonnetlibrary[$$JsonnetLibrary$$]
+- xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresource[$$ManagedResource$$]
+
+
+
+[id="{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-applyoptions"]
+==== ApplyOptions
+
+
+
+
+
+
+
+.Appears In:
+****
+- xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresourcespec[$$ManagedResourceSpec$$]
+****
+
+[cols="20a,50a,15a,15a", options="header"]
+|===
+| Field | Description | Default | Validation
+| *`fieldManager`* __string__ | FieldManager is the field manager to use when applying the ManagedResource +
+If not set, the field manager is set to the name of the resource with `managed-resource` prefix + |  | 
+| *`force`* __boolean__ | Force is going to "force" Apply requests. It means user will +
+re-acquire conflicting fields owned by other people. + | false | 
+| *`fieldValidation`* __string__ | fieldValidation instructs the managed resource on how to handle +
+objects containing unknown or duplicate fields. Valid values are: +
+- Ignore: This will ignore any unknown fields that are silently +
+dropped from the object, and will ignore all but the last duplicate +
+field that the decoder encounters. +
+- Strict: This will fail the request with a BadRequest error if +
+any unknown fields would be dropped from the object, or if any +
+duplicate fields are present. The error returned will contain +
+all unknown and duplicate fields encountered. +
+Defaults to "Strict". + | Strict | Enum: [Ignore Strict] +
+
+|===
+
+
+
+
+[id="{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-contextresource"]
+==== ContextResource
+
+
+
+
+
+
+
+.Appears In:
+****
+- xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresourcecontext[$$ManagedResourceContext$$]
+****
+
+[cols="20a,50a,15a,15a", options="header"]
+|===
+| Field | Description | Default | Validation
+| *`apiVersion`* __string__ | APIVersion of the resource that should be added to the context. + |  | 
+| *`group`* __string__ | Group of the resource that should be added to the context. + |  | 
+| *`kind`* __string__ | Kind of the resource that should be added to the context. + |  | 
+| *`name`* __string__ | Name of the resource that should be added to the context. +
+If not set, all resources of the specified Kind are added to the context. + |  | 
+| *`namespace`* __string__ | Namespace for the resources that should be added to the context. +
+If not set, the namespace of the ManagedResource is used. +
+Can be set to empty string to add all namespaces. + |  | 
+| *`labelSelector`* __link:https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#labelselector-v1-meta[$$LabelSelector$$]__ | LabelSelector can be used to filter the resources that should be added to the context. +
+This is efficiently done by the Kubernetes API server + |  | 
+| *`matchNames`* __string array__ | MatchNames can be used to filter the resources that should be added to the context. +
+This is considered experimental and might be removed in the future. +
+The filtering is done on the controller side and might not be as efficient as the LabelSelector. +
+Filtered objects are dropped before any caching or processing. + |  | 
+| *`ignoreNames`* __string array__ | IgnoreNames can be used to filter the resources that should be added to the context. +
+This is considered experimental and might be removed in the future. +
+The filtering is done on the controller side and might not be as efficient as the LabelSelector. +
+Filtered objects are dropped before any caching or processing. + |  | 
+|===
+
+
+[id="{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-jsonnetlibrary"]
+==== JsonnetLibrary
+
+
+
+JsonnetLibrary is the Schema for the jsonnetlibraries API.
+
+
+
+
+
+[cols="20a,50a,15a,15a", options="header"]
+|===
+| Field | Description | Default | Validation
+| *`apiVersion`* __string__ | `espejote.io/v1alpha1` | |
+| *`kind`* __string__ | `JsonnetLibrary` | |
+| *`metadata`* __link:https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#objectmeta-v1-meta[$$ObjectMeta$$]__ | Refer to Kubernetes API documentation for fields of `metadata`.
+ |  | 
+| *`spec`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-jsonnetlibraryspec[$$JsonnetLibrarySpec$$]__ |  |  | 
+|===
+
+
+[id="{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-jsonnetlibraryspec"]
+==== JsonnetLibrarySpec
+
+
+
+JsonnetLibrarySpec defines the desired state of JsonnetLibrary.
+
+
+
+.Appears In:
+****
+- xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-jsonnetlibrary[$$JsonnetLibrary$$]
+****
+
+[cols="20a,50a,15a,15a", options="header"]
+|===
+| Field | Description | Default | Validation
+| *`data`* __object (keys:string, values:string)__ | Data is a map of Jsonnet library files. +
+The key is the file name and the value is the file content. + |  | 
+|===
+
+
+[id="{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresource"]
+==== ManagedResource
+
+
+
+ManagedResource is the Schema for the ManagedResources API
+
+
+
+
+
+[cols="20a,50a,15a,15a", options="header"]
+|===
+| Field | Description | Default | Validation
+| *`apiVersion`* __string__ | `espejote.io/v1alpha1` | |
+| *`kind`* __string__ | `ManagedResource` | |
+| *`metadata`* __link:https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#objectmeta-v1-meta[$$ObjectMeta$$]__ | Refer to Kubernetes API documentation for fields of `metadata`.
+ |  | 
+| *`spec`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresourcespec[$$ManagedResourceSpec$$]__ |  |  | 
+| *`status`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresourcestatus[$$ManagedResourceStatus$$]__ |  |  | 
+|===
+
+
+[id="{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresourcecontext"]
+==== ManagedResourceContext
+
+
+
+
+
+
+
+.Appears In:
+****
+- xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresourcespec[$$ManagedResourceSpec$$]
+****
+
+[cols="20a,50a,15a,15a", options="header"]
+|===
+| Field | Description | Default | Validation
+| *`def`* __string__ | Def is the name of the context definition. The context can be referenced in the template by this name. + |  | MinLength: 1 +
+
+| *`resource`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-contextresource[$$ContextResource$$]__ | Resource defines the resource that should be added to the context. +
+Adds a list of zero or more resources to the context. + |  | 
+|===
+
+
+[id="{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresourcespec"]
+==== ManagedResourceSpec
+
+
+
+ManagedResourceSpec defines the desired state of ManagedResource
+
+
+
+.Appears In:
+****
+- xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresource[$$ManagedResource$$]
+****
+
+[cols="20a,50a,15a,15a", options="header"]
+|===
+| Field | Description | Default | Validation
+| *`triggers`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresourcetrigger[$$ManagedResourceTrigger$$] array__ | Triggers define the resources that trigger the reconciliation of the ManagedResource +
+Trigger information will be injected when rendering the template. +
+This can be used to only partially render the template based on the trigger. + |  | 
+| *`context`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresourcecontext[$$ManagedResourceContext$$] array__ | Context defines the context for the ManagedResource + |  | 
+| *`serviceAccountRef`* __link:https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#localobjectreference-v1-core[$$LocalObjectReference$$]__ | ServiceAccountRef is the service account this managed resource runs as. +
+The service account must have the necessary permissions to manage the resources referenced in the template. +
+If not set, the namespace's default service account is used. + | { name:default } | 
+| *`template`* __string__ | Template defines the template for the ManagedResource +
+The template is rendered using Jsonnet and the result is applied to the cluster. +
+The template can reference the context and trigger information. +
+All access to injected data should be done through the `espejote.libsonnet` import. +
+The template can reference JsonnetLibrary objects by importing them. +
+JsonnetLibrary objects have the following structure: +
+- "espejote.libsonnet": The built in library for accessing the context and trigger information. +
+- "lib/<NAME>/<KEY>" libraries in the shared library namespace. The name corresponds to the name of the JsonnetLibrary object and the key to the key in the data field. +
+The namespace is configured at controller startup and normally points to the namespace of the controller. +
+- "<NAME>/<KEY>" libraries in the same namespace as the ManagedResource. The name corresponds to the name of the JsonnetLibrary object and the key to the key in the data field. +
+The template can return a single object, a list of objects, or null. Everything else is considered an error. +
+Namespaced objects default to the namespace of the ManagedResource. + |  | 
+| *`applyOptions`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-applyoptions[$$ApplyOptions$$]__ | ApplyOptions defines the options for applying the ManagedResource + |  | 
+|===
+
+
+[id="{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresourcestatus"]
+==== ManagedResourceStatus
+
+
+
+ManagedResourceStatus defines the observed state of ManagedResource
+
+
+
+.Appears In:
+****
+- xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresource[$$ManagedResource$$]
+****
+
+[cols="20a,50a,15a,15a", options="header"]
+|===
+| Field | Description | Default | Validation
+| *`status`* __string__ | Status reports the last overall status of the ManagedResource +
+More information can be found by inspecting the ManagedResource's events with either `kubectl describe` or `kubectl get events`. + |  | 
+|===
+
+
+[id="{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresourcetrigger"]
+==== ManagedResourceTrigger
+
+
+
+
+
+
+
+.Appears In:
+****
+- xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresourcespec[$$ManagedResourceSpec$$]
+****
+
+[cols="20a,50a,15a,15a", options="header"]
+|===
+| Field | Description | Default | Validation
+| *`interval`* __link:https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#duration-v1-meta[$$Duration$$]__ | Interval defines the interval at which the ManagedResource should be reconciled. + |  | Format: duration +
+
+| *`watchResource`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-triggerwatchresource[$$TriggerWatchResource$$]__ | WatchResource defines one or multiple resources that trigger the reconciliation of the ManagedResource. +
+Resource information is injected when rendering the template and can be retrieved using `(import "espejote.libsonnet").getTrigger()`. +
+`local esp = import "espejote.libsonnet"; esp.triggerType() == esp.TriggerTypeWatchResource` will be true if the render was triggered by a definition in this block. + |  | 
+|===
+
+
+[id="{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-triggerwatchresource"]
+==== TriggerWatchResource
+
+
+
+
+
+
+
+.Appears In:
+****
+- xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresourcetrigger[$$ManagedResourceTrigger$$]
+****
+
+[cols="20a,50a,15a,15a", options="header"]
+|===
+| Field | Description | Default | Validation
+| *`apiVersion`* __string__ | APIVersion of the resource that should be watched. + |  | 
+| *`group`* __string__ | Group of the resource that should be watched. + |  | 
+| *`kind`* __string__ | Kind of the resource that should be watched. + |  | 
+| *`name`* __string__ | Name of the resource that should be watched. +
+If not set, all resources of the specified Kind are watched. + |  | 
+| *`namespace`* __string__ | Namespace for the resources that should be watched. +
+If not set, the namespace of the ManagedResource is used. +
+Can be explicitly set to empty string to watch all namespaces. + |  | 
+| *`labelSelector`* __link:https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#labelselector-v1-meta[$$LabelSelector$$]__ | LabelSelector can be used to filter the resources that should be watched. +
+This is efficiently done by the Kubernetes API server + |  | 
+| *`matchNames`* __string array__ | MatchNames can be used to filter the resources that should be watched. +
+This is considered experimental and might be removed in the future. +
+The filtering is done on the controller side and might not be as efficient as the LabelSelector. +
+Filtered objects are dropped before any caching or processing. + |  | 
+| *`ignoreNames`* __string array__ | IgnoreNames can be used to filter the resources that should be watched. +
+This is considered experimental and might be removed in the future. +
+The filtering is done on the controller side and might not be as efficient as the LabelSelector. +
+Filtered objects are dropped before any caching or processing. + |  | 
+|===
+
+

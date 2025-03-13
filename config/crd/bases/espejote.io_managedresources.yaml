@@ -48,6 +48,7 @@ spec:
                       If not set, the field manager is set to the name of the resource with `managed-resource` prefix
                     type: string
                   fieldValidation:
+                    default: Strict
                     description: |-
                       fieldValidation instructs the managed resource on how to handle
                       objects containing unknown or duplicate fields. Valid values are:
@@ -64,6 +65,7 @@ spec:
                     - Strict
                     type: string
                   force:
+                    default: false
                     description: |-
                       Force is going to "force" Apply requests. It means user will
                       re-acquire conflicting fields owned by other people.
@@ -178,6 +180,8 @@ spec:
                   type: object
                 type: array
               serviceAccountRef:
+                default:
+                  name: default
                 description: |-
                   ServiceAccountRef is the service account this managed resource runs as.
                   The service account must have the necessary permissions to manage the resources referenced in the template.

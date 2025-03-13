@@ -20,6 +20,7 @@ type ManagedResourceSpec struct {
 	// ServiceAccountRef is the service account this managed resource runs as.
 	// The service account must have the necessary permissions to manage the resources referenced in the template.
 	// If not set, the namespace's default service account is used.
+	// +kubebuilder:default={"name": "default"}
 	ServiceAccountRef corev1.LocalObjectReference `json:"serviceAccountRef,omitempty"`
 
 	// Template defines the template for the ManagedResource
@@ -49,6 +50,7 @@ type ApplyOptions struct {
 	// Force is going to "force" Apply requests. It means user will
 	// re-acquire conflicting fields owned by other people.
 	// +optional
+	// +kubebuilder:default=false
 	Force bool `json:"force,omitempty"`
 
 	// fieldValidation instructs the managed resource on how to handle
@@ -62,6 +64,7 @@ type ApplyOptions struct {
 	// all unknown and duplicate fields encountered.
 	// Defaults to "Strict".
 	// +kubebuilder:validation:Enum=Ignore;Strict
+	// +kubebuilder:default=Strict
 	// +optional
 	FieldValidation string `json:"fieldValidation,omitempty"`
 }
