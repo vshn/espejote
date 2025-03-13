@@ -410,7 +410,7 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 		}
 
 		if trigger.WatchResource.APIVersion == "" {
-			continue
+			return nil, fmt.Errorf("trigger %d has no watch resource or interval", ti)
 		}
 
 		watchTarget, dc, err := r.newCacheForResourceAndRESTClient(cctx, trigger.WatchResource, rc, mr.GetNamespace())
@@ -429,7 +429,7 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 
 	for conI, con := range mr.Spec.Context {
 		if con.Resource.APIVersion == "" {
-			continue
+			return nil, fmt.Errorf("context %q has no resource", con.Def)
 		}
 
 		watchTarget, dc, err := r.newCacheForResourceAndRESTClient(cctx, con.Resource, rc, mr.GetNamespace())
