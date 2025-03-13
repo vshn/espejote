@@ -174,7 +174,7 @@ if esp.triggerType() == esp.TriggerTypeWatchResource && trigger.kind == "Namespa
 				}},
 				Template: `
 local esp = import "espejote.libsonnet";
-local cms = esp.getContext("cms");
+local cms = esp.context()["cms"];
 
 [{
 	apiVersion: 'v1',
