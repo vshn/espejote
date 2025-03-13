@@ -274,6 +274,35 @@ local cms = esp.getContext("cms");
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
+	t.Run("duplicate context definition", func(t *testing.T) {
+		t.Parallel()
+
+		testns := tmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Context: []espejotev1alpha1.ManagedResourceContext{
+					{Def: "test"},
+					{Def: "test"},
+				},
+				Template: ``,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var events corev1.EventList
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorFor(mr.Name)))
+			require.Len(t, events.Items, 1)
+			assert.Equal(t, "Warning", events.Items[0].Type)
+			assert.Contains(t, events.Items[0].Message, DependencyConfigurationError)
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
 	t.Run("service account does not exist", func(t *testing.T) {
 		t.Parallel()
 
@@ -381,7 +410,7 @@ local cms = esp.getContext("cms");
 			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorFor(mr.Name)))
 			require.Len(t, events.Items, 1)
 			assert.Equal(t, "Warning", events.Items[0].Type)
-			assert.Contains(t, events.Items[0].Message, TriggerConfigurationError)
+			assert.Contains(t, events.Items[0].Message, DependencyConfigurationError)
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 

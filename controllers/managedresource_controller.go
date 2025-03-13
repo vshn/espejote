@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -142,11 +143,11 @@ func ignoreErrCacheNotReady(err error) error {
 type EspejoteErrorType string
 
 const (
-	ServiceAccountError       EspejoteErrorType = "ServiceAccountError"
-	TriggerConfigurationError EspejoteErrorType = "TriggerConfigurationError"
-	TemplateError             EspejoteErrorType = "TemplateError"
-	ApplyError                EspejoteErrorType = "ApplyError"
-	TemplateReturnError       EspejoteErrorType = "TemplateReturnError"
+	ServiceAccountError          EspejoteErrorType = "ServiceAccountError"
+	DependencyConfigurationError EspejoteErrorType = "DependencyConfigurationError"
+	TemplateError                EspejoteErrorType = "TemplateError"
+	ApplyError                   EspejoteErrorType = "ApplyError"
+	TemplateReturnError          EspejoteErrorType = "TemplateReturnError"
 )
 
 type EspejoteError struct {
@@ -185,11 +186,11 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 
 	ci, err := r.cacheFor(ctx, managedResource)
 	if err != nil {
-		return ctrl.Result{}, newEspejoteError(err, TriggerConfigurationError)
+		return ctrl.Result{}, newEspejoteError(err, DependencyConfigurationError)
 	}
 	ready, err := ci.AllCachesReady()
 	if err != nil {
-		return ctrl.Result{}, newEspejoteError(err, TriggerConfigurationError)
+		return ctrl.Result{}, newEspejoteError(err, DependencyConfigurationError)
 	}
 	if !ready {
 		return ctrl.Result{Requeue: true}, nil
@@ -382,6 +383,14 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 	rc, err := r.restConfigForManagedResource(r.ControllerLifetimeCtx, mr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get rest config for managed resource: %w", err)
+	}
+
+	cns := sets.New[string]()
+	for _, con := range mr.Spec.Context {
+		if cns.Has(con.Def) {
+			return nil, fmt.Errorf("duplicate context definition %q", con.Def)
+		}
+		cns.Insert(con.Def)
 	}
 
 	cctx, cancel := context.WithCancel(r.ControllerLifetimeCtx)
