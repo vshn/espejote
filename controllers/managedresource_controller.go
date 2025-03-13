@@ -692,8 +692,8 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 	}
 
 	go c.Start(ctx)
-	go func(ctx context.Context, dc *definitionCache) {
-		success := c.WaitForCacheSync(r.ControllerLifetimeCtx)
+	go func() {
+		success := c.WaitForCacheSync(ctx)
 		dc.cacheReadyMux.Lock()
 		defer dc.cacheReadyMux.Unlock()
 
@@ -702,7 +702,7 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 		} else {
 			dc.cacheReady = ErrFailedSyncCache
 		}
-	}(ctx, dc)
+	}()
 
 	return watchTarget, dc, nil
 }
