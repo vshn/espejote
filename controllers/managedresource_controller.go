@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -391,6 +392,14 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 		watchConfigHash: configHash,
 	}
 	for ti, trigger := range mr.Spec.Triggers {
+		if trigger.Interval.Duration != 0 {
+			if err := r.setupIntervalTrigger(cctx, trigger.Interval.Duration, k, ti); err != nil {
+				cancel()
+				return nil, fmt.Errorf("failed to setup interval trigger %d: %w", ti, err)
+			}
+			continue
+		}
+
 		if trigger.WatchResource.APIVersion == "" {
 			continue
 		}
@@ -687,6 +696,36 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 	}(ctx, dc)
 
 	return watchTarget, dc, nil
+}
+
+// setupIntervalTrigger sets up a trigger that fires every interval.
+// The trigger is enqueued with the ManagedResource's key and the trigger index.
+// The trigger is shut down when the context is canceled.
+func (r *ManagedResourceReconciler) setupIntervalTrigger(ctx context.Context, interval time.Duration, mrKey types.NamespacedName, triggerIndex int) error {
+	tick := time.NewTicker(interval)
+	evChan := make(chan event.TypedGenericEvent[time.Time])
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				tick.Stop()
+				close(evChan)
+				return
+			case t := <-tick.C:
+				select {
+				case <-ctx.Done():
+					tick.Stop()
+					close(evChan)
+					return
+				case evChan <- event.TypedGenericEvent[time.Time]{Object: t}:
+				}
+			}
+		}
+	}()
+
+	return r.controller.Watch(source.TypedChannel(evChan, handler.TypedEnqueueRequestsFromMapFunc(func(_ context.Context, _ time.Time) []Request {
+		return []Request{{NamespacedName: mrKey, TriggerInfo: TriggerInfo{TriggerIndex: triggerIndex}}}
+	})))
 }
 
 func staticMapFunc(r types.NamespacedName, triggerIndex int) func(context.Context, client.Object) []Request {

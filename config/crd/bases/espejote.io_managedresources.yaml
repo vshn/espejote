@@ -216,6 +216,11 @@ spec:
                   This can be used to only partially render the template based on the trigger.
                 items:
                   properties:
+                    interval:
+                      description: Interval defines the interval at which the ManagedResource
+                        should be reconciled.
+                      format: duration
+                      type: string
                     watchResource:
                       description: |-
                         WatchResource defines one or multiple resources that trigger the reconciliation of the ManagedResource.

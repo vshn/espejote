@@ -574,6 +574,115 @@ local cms = esp.getContext("cms");
 			return !apierrors.IsNotFound(c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, new(corev1.ConfigMap)))
 		}, 2*time.Second, 100*time.Millisecond)
 	})
+
+	t.Run("interval trigger", func(t *testing.T) {
+		t.Parallel()
+
+		testns := tmpNamespace(t, c)
+
+		cmToPatch := &corev1.ConfigMap{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "v1",
+				Kind:       "ConfigMap",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Data: map[string]string{
+				"test": "test",
+			},
+		}
+		require.NoError(t, c.Create(ctx, cmToPatch))
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
+					{
+						Interval: metav1.Duration{Duration: 10 * time.Millisecond},
+					},
+				},
+				ApplyOptions: espejotev1alpha1.ApplyOptions{
+					Force: true,
+				},
+				Template: `{
+					apiVersion: "v1",
+					kind: "ConfigMap",
+					metadata: {
+						name: "test",
+						namespace: "` + testns + `",
+					},
+					data: {
+						test: "updated",
+					},
+				}`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		t.Log("waiting for the update")
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			assert.Equal(t, "updated", cm.Data["test"])
+		}, 5*time.Second, 100*time.Millisecond)
+
+		t.Log("resetting the data. repeating until no conflict")
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			cm.Data["test"] = "test"
+			require.NoError(t, c.Update(ctx, &cm))
+		}, 5*time.Second, time.Millisecond)
+		t.Log("waiting for the update")
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			assert.Equal(t, "updated", cm.Data["test"])
+		}, 5*time.Second, 100*time.Millisecond)
+
+		t.Log("removing the trigger - test shutdown")
+		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+		mr.Spec.Triggers = nil
+		mr.Spec.Template = `{
+			apiVersion: "v1",
+			kind: "ConfigMap",
+			metadata: {
+				name: "test",
+				namespace: "` + testns + `",
+			},
+			data: {
+				test: "updated",
+				processed: "true",
+			},
+		}`
+		require.NoError(t, c.Update(ctx, mr))
+
+		t.Log("waiting the reconcile/ reconfiguration to finish")
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			assert.Equal(t, "true", cm.Data["processed"])
+		}, 5*time.Second, 100*time.Millisecond)
+
+		t.Log("resetting the data")
+		{
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			cm.Data["test"] = "test"
+			require.NoError(t, c.Update(ctx, &cm))
+		}
+
+		require.Never(t, func() bool {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			return cm.Data["test"] != "test"
+		}, 2*time.Second, 10*time.Millisecond, "Trigger should be shut down and thus stop updating the resource")
+	})
 }
 
 func eventSelectorFor(managedResourceName string) client.ListOption {

@@ -67,6 +67,10 @@ type ApplyOptions struct {
 }
 
 type ManagedResourceTrigger struct {
+	// Interval defines the interval at which the ManagedResource should be reconciled.
+	// +kubebuilder:validation:Format=duration
+	Interval metav1.Duration `json:"interval,omitempty"`
+
 	// WatchResource defines one or multiple resources that trigger the reconciliation of the ManagedResource.
 	// Resource information is injected when rendering the template and can be retrieved using `(import "espejote.libsonnet").getTrigger()`.
 	// `local esp = import "espejote.libsonnet"; esp.triggerType() == esp.TriggerTypeWatchResource` will be true if the render was triggered by a definition in this block.
