@@ -58,6 +58,9 @@ type ApplyOptions struct {
 	// - Ignore: This will ignore any unknown fields that are silently
 	// dropped from the object, and will ignore all but the last duplicate
 	// field that the decoder encounters.
+	// Note that Jsonnet won't allow you to add duplicate fields to an object
+	// and most unregistered fields will error out in the server-side apply
+	// request, even with this option set.
 	// - Strict: This will fail the request with a BadRequest error if
 	// any unknown fields would be dropped from the object, or if any
 	// duplicate fields are present. The error returned will contain
