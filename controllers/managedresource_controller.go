@@ -172,7 +172,7 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 }
 
 func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) (ctrl.Result, error) {
-	l := log.FromContext(ctx).WithName("ManagedResourceReconciler.reconcile").WithValues("request", req)
+	l := log.FromContext(ctx).WithName("ManagedResourceReconciler.reconcile")
 	l.Info("Reconciling ManagedResource")
 
 	var managedResource espejotev1alpha1.ManagedResource
