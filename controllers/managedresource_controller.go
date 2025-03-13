@@ -6,6 +6,7 @@ import (
 	encjson "encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"sync"
@@ -273,8 +274,14 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 		applyOpts = append(applyOpts, client.ForceOwnership)
 	}
 	applyErrs := make([]error, 0, len(objects))
+
+	c, err := r.uncachedClientForManagedResource(ctx, managedResource)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to get client for managed resource: %w", err)
+	}
+
 	for _, obj := range objects {
-		err := r.Client.Patch(ctx, obj, client.Apply, applyOpts...)
+		err := c.Patch(ctx, obj, client.Apply, applyOpts...)
 		if err != nil {
 			applyErrs = append(applyErrs, fmt.Errorf("failed to apply object %q %q: %w", obj.GetObjectKind(), obj.GetName(), err))
 		}
@@ -361,6 +368,9 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 	if err := henc.Encode(mr.Spec.Context); err != nil {
 		return nil, fmt.Errorf("failed to encode contexts: %w", err)
 	}
+	if _, err := io.WriteString(hsh, mr.Spec.ServiceAccountRef.Name); err != nil {
+		return nil, fmt.Errorf("failed to hash service account name: %w", err)
+	}
 	configHash := fmt.Sprintf("%x", hsh.Sum(nil))
 
 	r.cachesMux.RLock()
@@ -380,7 +390,7 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 		ci.Stop()
 	}
 
-	rc, err := r.restConfigForManagedResource(r.ControllerLifetimeCtx, mr)
+	rc, err := r.restConfigForManagedResource(ctx, mr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get rest config for managed resource: %w", err)
 	}
@@ -563,6 +573,21 @@ func (r *ManagedResourceReconciler) renderContexts(ctx context.Context, ci *inst
 	return string(contextJSON), nil
 }
 
+// uncachedClientForManagedResource returns a client.Client running in the context of the managed resource's service account.
+// It does not add any caches.
+// The context is used to get a JWT token for the service account and is not further used.
+func (r *ManagedResourceReconciler) uncachedClientForManagedResource(ctx context.Context, mr espejotev1alpha1.ManagedResource) (client.Client, error) {
+	rc, err := r.restConfigForManagedResource(ctx, mr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rest config for managed resource: %w", err)
+	}
+
+	return client.New(rc, client.Options{
+		Scheme: r.Scheme,
+		Mapper: r.mapper,
+	})
+}
+
 // unpackRenderedObjects unpacks the rendered template into a list of client.Objects.
 // The rendered template can be a single object, a list of objects or null.
 func (r *ManagedResourceReconciler) unpackRenderedObjects(ctx context.Context, rendered string) ([]client.Object, error) {
@@ -611,6 +636,7 @@ func (r *ManagedResourceReconciler) jwtTokenForSA(ctx context.Context, namespace
 }
 
 // restConfigForManagedResource returns a rest.Config for the given ManagedResource.
+// The context is used to get a JWT token for the service account and is not further used.
 // The rest.Config contains a Bearer token for the service account specified in the ManagedResource.
 // The rest.Config copies the TLSClientConfig and Host from the controller's rest.Config.
 func (r *ManagedResourceReconciler) restConfigForManagedResource(ctx context.Context, mr espejotev1alpha1.ManagedResource) (*rest.Config, error) {
