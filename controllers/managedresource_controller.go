@@ -259,30 +259,27 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 	}
 
 	// apply objects returned by the template
-	fieldValidation := managedResource.Spec.ApplyOptions.FieldValidation
-	if fieldValidation == "" {
-		fieldValidation = "Strict"
-	} else {
-		l.Info("using custom field validation", "validation", fieldValidation)
-	}
-	fieldOwner := managedResource.Spec.ApplyOptions.FieldManager
-	if fieldOwner == "" {
-		fieldOwner = fmt.Sprintf("managed-resource:%s", managedResource.GetName())
-	}
-	applyOpts := []client.PatchOption{client.FieldValidation(fieldValidation), client.FieldOwner(fieldOwner)}
-	if managedResource.Spec.ApplyOptions.Force {
-		applyOpts = append(applyOpts, client.ForceOwnership)
-	}
-	applyErrs := make([]error, 0, len(objects))
-
 	c, err := r.uncachedClientForManagedResource(ctx, managedResource)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to get client for managed resource: %w", err)
 	}
 
+	applyErrs := make([]error, 0, len(objects))
 	for _, obj := range objects {
-		err := c.Patch(ctx, obj, client.Apply, applyOpts...)
+		// check if object is marked for deletion
+		shouldDelete, opts, err := deleteOptionsFromRenderedObject(obj)
 		if err != nil {
+			applyErrs = append(applyErrs, fmt.Errorf("failed to get deletion flag: %w", err))
+			continue
+		}
+		if shouldDelete {
+			if err := c.Delete(ctx, stripUnstructuredForDelete(obj), opts...); err != nil {
+				applyErrs = append(applyErrs, fmt.Errorf("failed to delete object %q %q: %w", obj.GetObjectKind(), obj.GetName(), err))
+			}
+			continue
+		}
+
+		if err := c.Patch(ctx, obj, client.Apply, patchOptionsFromManagedResource(managedResource)...); err != nil {
 			applyErrs = append(applyErrs, fmt.Errorf("failed to apply object %q %q: %w", obj.GetObjectKind(), obj.GetName(), err))
 		}
 	}
@@ -590,8 +587,8 @@ func (r *ManagedResourceReconciler) uncachedClientForManagedResource(ctx context
 
 // unpackRenderedObjects unpacks the rendered template into a list of client.Objects.
 // The rendered template can be a single object, a list of objects or null.
-func (r *ManagedResourceReconciler) unpackRenderedObjects(ctx context.Context, rendered string) ([]client.Object, error) {
-	var objects []client.Object
+func (r *ManagedResourceReconciler) unpackRenderedObjects(ctx context.Context, rendered string) ([]*unstructured.Unstructured, error) {
+	var objects []*unstructured.Unstructured
 	if rendered != "" && strings.HasPrefix(rendered, "{") {
 		obj := &unstructured.Unstructured{}
 		if err := obj.UnmarshalJSON([]byte(rendered)); err != nil {
@@ -836,4 +833,91 @@ func wrapNewInformerWithFilter(f func(o client.Object) (keep bool)) func(toolsca
 
 		return toolscache.NewSharedIndexInformer(flw, o, d, i)
 	}
+}
+
+// patchOptionsFromManagedResource returns the patch options for the given ManagedResource.
+// The options are taken from the ManagedResource's ApplyOptions.
+func patchOptionsFromManagedResource(mr espejotev1alpha1.ManagedResource) []client.PatchOption {
+	fieldValidation := mr.Spec.ApplyOptions.FieldValidation
+	if fieldValidation == "" {
+		fieldValidation = "Strict"
+	}
+	fieldOwner := mr.Spec.ApplyOptions.FieldManager
+	if fieldOwner == "" {
+		fieldOwner = fmt.Sprintf("managed-resource:%s", mr.GetName())
+	}
+	po := []client.PatchOption{client.FieldValidation(fieldValidation), client.FieldOwner(fieldOwner)}
+	if mr.Spec.ApplyOptions.Force {
+		po = append(po, client.ForceOwnership)
+	}
+
+	return po
+}
+
+// stripUnstructuredForDelete returns a copy of the given unstructured object with only the GroupVersionKind, Namespace and Name set.
+func stripUnstructuredForDelete(u *unstructured.Unstructured) *unstructured.Unstructured {
+	cp := &unstructured.Unstructured{}
+	cp.SetGroupVersionKind(u.GroupVersionKind())
+	cp.SetNamespace(u.GetNamespace())
+	cp.SetName(u.GetName())
+	return cp
+}
+
+// deleteOptionsFromRenderedObject extracts the deletion options from the given unstructured object.
+// The deletion options are stored in the object under the "__internal_use_espejote_lib_deletion" key.
+// The deletion options are:
+// - delete: bool, required, if true the object should be deleted
+// - gracePeriodSeconds: int, optional, the grace period for the deletion
+// - propagationPolicy: string, optional, the deletion propagation policy
+// - preconditionUID: string, optional, the UID of the object that must match for deletion
+// - preconditionResourceVersion: string, optional, the resource version of the object that must match for deletion
+// The first return value is true if the object should be deleted.
+func deleteOptionsFromRenderedObject(obj *unstructured.Unstructured) (shouldDelete bool, opts []client.DeleteOption, err error) {
+	shouldDelete, _, err = unstructured.NestedBool(obj.UnstructuredContent(), "__internal_use_espejote_lib_deletion", "delete")
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to get deletion flag: %w", err)
+	}
+	if !shouldDelete {
+		return false, nil, nil
+	}
+
+	gracePeriodSeconds, ok, err := unstructured.NestedInt64(obj.UnstructuredContent(), "__internal_use_espejote_lib_deletion", "gracePeriodSeconds")
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to get deletion grace period: %w", err)
+	}
+	if ok {
+		opts = append(opts, client.GracePeriodSeconds(gracePeriodSeconds))
+	}
+
+	propagationPolicy, ok, err := unstructured.NestedString(obj.UnstructuredContent(), "__internal_use_espejote_lib_deletion", "propagationPolicy")
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to get deletion propagation policy: %w", err)
+	}
+	if ok {
+		opts = append(opts, client.PropagationPolicy(metav1.DeletionPropagation(propagationPolicy)))
+	}
+
+	preconditions := metav1.Preconditions{}
+	hasPreconditions := false
+	preconditionUID, ok, err := unstructured.NestedString(obj.UnstructuredContent(), "__internal_use_espejote_lib_deletion", "preconditionUID")
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to get deletion precondition UID: %w", err)
+	}
+	if ok {
+		hasPreconditions = true
+		preconditions.UID = ptr.To(types.UID(preconditionUID))
+	}
+	preconditionResourceVersion, ok, err := unstructured.NestedString(obj.UnstructuredContent(), "__internal_use_espejote_lib_deletion", "preconditionResourceVersion")
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to get deletion precondition resource version: %w", err)
+	}
+	if ok {
+		hasPreconditions = true
+		preconditions.ResourceVersion = &preconditionResourceVersion
+	}
+	if hasPreconditions {
+		opts = append(opts, client.Preconditions(preconditions))
+	}
+
+	return
 }
