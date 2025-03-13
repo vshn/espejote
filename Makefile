@@ -18,7 +18,7 @@ help: ## Show this help
 all: build ## Invokes the build target
 
 .PHONY: test
-test: ## Run tests
+test: manifests generate ## Run tests
 	KUBEBUILDER_ASSETS="$(shell go tool sigs.k8s.io/controller-runtime/tools/setup-envtest use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -race -coverprofile cover.tmp.out
 	cat cover.tmp.out | grep -v "zz_generated.deepcopy.go" > cover.out
 
