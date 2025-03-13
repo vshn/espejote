@@ -17,7 +17,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	espejoteiov1alpha1 "github.com/vshn/espejote/api/v1alpha1"
-	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
 	"github.com/vshn/espejote/controllers"
 	//+kubebuilder:scaffold:imports
 )
@@ -29,12 +28,13 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(espejotev1alpha1.AddToScheme(scheme))
 	utilruntime.Must(espejoteiov1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
 func main() {
+	lifetimeCtx := ctrl.SetupSignalHandler()
+
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
@@ -47,11 +47,19 @@ func main() {
 		Development: true,
 	}
 	opts.BindFlags(flag.CommandLine)
+
+	defaultNamespace := "default"
+	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+		defaultNamespace = ns
+	}
+	var jsonnetLibraryNamespace string
+	flag.StringVar(&jsonnetLibraryNamespace, "jsonnet-library-namespace", defaultNamespace, "The namespace that the controller watches for jsonnet libraries.")
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	restConf := ctrl.GetConfigOrDie()
+	mgr, err := ctrl.NewManager(restConf, ctrl.Options{
 		Scheme: scheme,
 		Metrics: server.Options{
 			BindAddress: metricsAddr,
@@ -79,16 +87,11 @@ func main() {
 	if err = (&controllers.ManagedResourceReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("upgrade-config-controller"),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ManagedResource")
-		os.Exit(1)
-	}
-	if err = (&controllers.ClusterManagedResourceReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("upgrade-config-controller"),
-	}).SetupWithManager(mgr); err != nil {
+		Recorder: mgr.GetEventRecorderFor("managed-resource-controller"),
+
+		ControllerLifetimeCtx:   lifetimeCtx,
+		JsonnetLibraryNamespace: jsonnetLibraryNamespace,
+	}).Setup(restConf, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ManagedResource")
 		os.Exit(1)
 	}
@@ -104,7 +107,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(lifetimeCtx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}

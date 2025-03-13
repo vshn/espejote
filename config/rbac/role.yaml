@@ -5,9 +5,21 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - serviceaccounts/token
+  verbs:
+  - create
+- apiGroups:
   - espejote.io
   resources:
-  - clustermanagedresources
   - managedresources
   verbs:
   - create
@@ -20,14 +32,12 @@ rules:
 - apiGroups:
   - espejote.io
   resources:
-  - clustermanagedresources/finalizers
   - managedresources/finalizers
   verbs:
   - update
 - apiGroups:
   - espejote.io
   resources:
-  - clustermanagedresources/status
   - managedresources/status
   verbs:
   - get

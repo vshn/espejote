@@ -9,6 +9,9 @@ MAKEFLAGS += --no-builtin-variables
 .DEFAULT_GOAL := help
 
 PROJECT_ROOT_DIR = .
+
+JSONNET_FILES   ?= $(shell find . -type f -not -path './vendor/*' \( -name '*.*jsonnet' -or -name '*.libsonnet' \))
+
 include Makefile.vars.mk
 
 .PHONY: help
@@ -18,8 +21,8 @@ help: ## Show this help
 all: build ## Invokes the build target
 
 .PHONY: test
-test: ## Run tests
-	go test ./... -coverprofile cover.tmp.out
+test: manifests generate ## Run tests
+	KUBEBUILDER_ASSETS="$(shell go tool sigs.k8s.io/controller-runtime/tools/setup-envtest use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -race -coverprofile cover.tmp.out
 	cat cover.tmp.out | grep -v "zz_generated.deepcopy.go" > cover.out
 
 .PHONY: build
@@ -28,6 +31,7 @@ build: generate manifests fmt vet $(BIN_FILENAME) ## Build manager binary
 .PHONY: manifests
 manifests: ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	go tool sigs.k8s.io/controller-tools/cmd/controller-gen rbac:roleName=manager-role crd:generateEmbeddedObjectMeta=true webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	go tool github.com/elastic/crd-ref-docs --config=crd-ref-docs-config.yaml --source-path=api/v1alpha1 --output-path docs/api.adoc
 
 .PHONY: generate
 generate: ## Generate manifests e.g. CRD, RBAC etc.
@@ -37,6 +41,7 @@ generate: ## Generate manifests e.g. CRD, RBAC etc.
 .PHONY: fmt
 fmt: ## Run go fmt against code
 	go fmt ./...
+	go tool github.com/google/go-jsonnet/cmd/jsonnetfmt -i -- $(JSONNET_FILES)
 
 .PHONY: vet
 vet: ## Run go vet against code
@@ -61,6 +66,10 @@ clean: ## Cleans up the generated resources
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./main.go
+
+LOCALBIN ?= $(shell pwd)/bin
+$(LOCALBIN):
+	mkdir -p $(LOCALBIN)
 
 ###
 ### Assets
