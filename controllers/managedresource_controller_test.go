@@ -247,6 +247,14 @@ local cms = esp.context()["cms"];
 		var cmToDelete2 corev1.ConfigMap
 		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test3"}, &cmToDelete2))
 		require.NoError(t, c.Delete(ctx, &cmToDelete2))
+
+		require.Never(t, func() bool {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "collected"}, &cm))
+			var cms []string
+			require.NoError(t, json.Unmarshal([]byte(cm.Data["cms"]), &cms))
+			return len(cms) < 1
+		}, 2*time.Second, 100*time.Millisecond, "should stop reconciling after deletion")
 	})
 
 	t.Run("template error", func(t *testing.T) {
