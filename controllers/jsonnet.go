@@ -71,11 +71,11 @@ func (importer *ManifestImporter) Import(_, importedPath string) (contents jsonn
 
 	var library espejotev1alpha1.JsonnetLibrary
 	if err := importer.Get(context.Background(), types.NamespacedName{Namespace: importer.Namespace, Name: manifestName}, &library); err != nil {
-		return jsonnet.Contents{}, "", fmt.Errorf("import not available %v", importedPath)
+		return jsonnet.Contents{}, "", fmt.Errorf("import %q not available: %w", importedPath, err)
 	}
 
 	if content, ok := library.Spec.Data[key]; ok {
 		return jsonnet.MakeContents(content), importedPath, nil
 	}
-	return jsonnet.Contents{}, "", fmt.Errorf("import not available %v", importedPath)
+	return jsonnet.Contents{}, "", fmt.Errorf("import %q not available: key %q not found in manifest %q", importedPath, key, manifestName)
 }
