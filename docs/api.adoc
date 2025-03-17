@@ -181,7 +181,7 @@ ManagedResource is the Schema for the ManagedResources API
 [cols="20a,50a,15a,15a", options="header"]
 |===
 | Field | Description | Default | Validation
-| *`def`* __string__ | Def is the name of the context definition. The context can be referenced in the template by this name. + |  | MinLength: 1 +
+| *`name`* __string__ | Name is the name of the context definition. The context can be referenced in the template by this name. + |  | MinLength: 1 +
 
 | *`resource`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-contextresource[$$ContextResource$$]__ | Resource defines the resource that should be added to the context. +
 Adds a list of zero or more resources to the context. + |  | 
@@ -267,6 +267,8 @@ More information can be found by inspecting the ManagedResource's events with ei
 [cols="20a,50a,15a,15a", options="header"]
 |===
 | Field | Description | Default | Validation
+| *`name`* __string__ | Name is the name of the trigger. The trigger can be referenced in the template by this name. + |  | MinLength: 1 +
+
 | *`interval`* __link:https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#duration-v1-meta[$$Duration$$]__ | Interval defines the interval at which the ManagedResource should be reconciled. + |  | Format: duration +
 
 | *`watchResource`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-triggerwatchresource[$$TriggerWatchResource$$]__ | WatchResource defines one or multiple resources that trigger the reconciliation of the ManagedResource. +

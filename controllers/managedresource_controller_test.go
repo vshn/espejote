@@ -105,6 +105,7 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
 					{
+						Name: "ns",
 						WatchResource: espejotev1alpha1.TriggerWatchResource{
 							Kind:       "Namespace",
 							APIVersion: "v1",
@@ -116,14 +117,14 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 local esp = import "espejote.libsonnet";
 local test = import "lib/test/test.jsonnet";
 local localTest = import "test/test.jsonnet";
-local trigger = esp.getTrigger();
+local trigger = esp.triggerData();
 
-if esp.triggerType() == esp.TriggerTypeWatchResource && trigger.kind == "Namespace" then [{
+if esp.triggerName() == "ns" then [{
 	apiVersion: 'v1',
 	kind: 'ConfigMap',
 	metadata: {
 		name: 'test',
-		namespace: trigger.metadata.name,
+		namespace: trigger.resource.metadata.name,
 		annotations: {
 			"espejote.vshn.net/hello": test.hello,
 			"espejote.vshn.net/local-hello": localTest.hello,
@@ -172,7 +173,7 @@ if esp.triggerType() == esp.TriggerTypeWatchResource && trigger.kind == "Namespa
 			},
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Context: []espejotev1alpha1.ManagedResourceContext{{
-					Def: "cms",
+					Name: "cms",
 					Resource: espejotev1alpha1.ContextResource{
 						APIVersion:  "v1",
 						Kind:        "ConfigMap",
@@ -217,6 +218,7 @@ local cms = esp.context()["cms"];
 		var resToUpdate espejotev1alpha1.ManagedResource
 		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: res.Name}, &resToUpdate))
 		resToUpdate.Spec.Triggers = []espejotev1alpha1.ManagedResourceTrigger{{
+			Name: "cms",
 			WatchResource: espejotev1alpha1.TriggerWatchResource{
 				Kind:       "ConfigMap",
 				APIVersion: "v1",
@@ -301,8 +303,37 @@ local cms = esp.context()["cms"];
 			},
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Context: []espejotev1alpha1.ManagedResourceContext{
-					{Def: "test"},
-					{Def: "test"},
+					{Name: "test"},
+					{Name: "test"},
+				},
+				Template: ``,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var events corev1.EventList
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorFor(mr.Name)))
+			require.Len(t, events.Items, 1)
+			assert.Equal(t, "Warning", events.Items[0].Type)
+			assert.Contains(t, events.Items[0].Message, DependencyConfigurationError)
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
+	t.Run("duplicate trigger definition", func(t *testing.T) {
+		t.Parallel()
+
+		testns := tmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
+					{Name: "test"},
+					{Name: "test"},
 				},
 				Template: ``,
 			},
@@ -409,6 +440,7 @@ local cms = esp.context()["cms"];
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
 					{
+						Name: "invalid",
 						WatchResource: espejotev1alpha1.TriggerWatchResource{
 							Kind:       "WhatWouldThisControllerDo",
 							APIVersion: "v1",
@@ -647,6 +679,7 @@ local cms = esp.context()["cms"];
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
 					{
+						Name:     "interval",
 						Interval: metav1.Duration{Duration: 10 * time.Millisecond},
 					},
 				},
@@ -773,7 +806,7 @@ local cms = esp.context()["cms"];
 			},
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Context: []espejotev1alpha1.ManagedResourceContext{{
-					Def: "cms",
+					Name: "cms",
 					Resource: espejotev1alpha1.ContextResource{
 						APIVersion: "v1",
 						Kind:       "ConfigMap",

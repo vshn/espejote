@@ -13,7 +13,8 @@ metadata:
       If the trigger is unknown or the managed resource itself was changed all config maps are rendered and applied.
 spec:
   triggers:
-  - watchResource:
+  - name: namespace
+    watchResource:
       apiVersion: v1
       kind: Namespace
       labelSelector:
@@ -21,7 +22,7 @@ spec:
         - key: managedresource-sample.espejote.io/inject-cm
           operator: Exists
   context:
-  - def: namespaces
+  - name: namespaces
     resource:
       apiVersion: v1
       kind: Namespace
@@ -47,9 +48,8 @@ spec:
       },
     };
 
-    local trigger = esp.getTrigger();
-    if esp.triggerType() == esp.TriggerTypeWatchResource && trigger.kind == "Namespace" then [
-      cmForNs(trigger),
+    if esp.triggerName() == "namespace" then [
+      cmForNs(esp.triggerData().resource),
     ] else [
       cmForNs(ns) for ns in namespaces
     ]

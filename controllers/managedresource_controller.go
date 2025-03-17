@@ -55,7 +55,7 @@ type Request = struct {
 }
 
 type TriggerInfo struct {
-	TriggerIndex int
+	TriggerName string
 
 	WatchResource WatchResource
 }
@@ -86,8 +86,8 @@ type ManagedResourceReconciler struct {
 }
 
 type instanceCache struct {
-	triggerCaches map[int]*definitionCache
-	contextCaches map[int]*definitionCache
+	triggerCaches map[string]*definitionCache
+	contextCaches map[string]*definitionCache
 
 	watchConfigHash string
 
@@ -392,60 +392,59 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 		return nil, fmt.Errorf("failed to get rest config for managed resource: %w", err)
 	}
 
-	cns := sets.New[string]()
-	for _, con := range mr.Spec.Context {
-		if cns.Has(con.Def) {
-			return nil, fmt.Errorf("duplicate context definition %q", con.Def)
-		}
-		cns.Insert(con.Def)
+	if found, e := findFirstDuplicate(mr.Spec.Triggers, func(tr espejotev1alpha1.ManagedResourceTrigger) string { return tr.Name }); found {
+		return nil, fmt.Errorf("duplicate trigger definition %q", e)
+	}
+	if found, e := findFirstDuplicate(mr.Spec.Context, func(tr espejotev1alpha1.ManagedResourceContext) string { return tr.Name }); found {
+		return nil, fmt.Errorf("duplicate context definition %q", e)
 	}
 
 	cctx, cancel := context.WithCancel(r.ControllerLifetimeCtx)
 	ci = &instanceCache{
-		triggerCaches:   make(map[int]*definitionCache),
-		contextCaches:   make(map[int]*definitionCache),
+		triggerCaches:   make(map[string]*definitionCache),
+		contextCaches:   make(map[string]*definitionCache),
 		stop:            cancel,
 		watchConfigHash: configHash,
 	}
-	for ti, trigger := range mr.Spec.Triggers {
+	for _, trigger := range mr.Spec.Triggers {
 		if trigger.Interval.Duration != 0 {
-			if err := r.setupIntervalTrigger(cctx, trigger.Interval.Duration, k, ti); err != nil {
+			if err := r.setupIntervalTrigger(cctx, trigger.Interval.Duration, k, trigger.Name); err != nil {
 				cancel()
-				return nil, fmt.Errorf("failed to setup interval trigger %d: %w", ti, err)
+				return nil, fmt.Errorf("failed to setup interval trigger %q: %w", trigger.Name, err)
 			}
 			continue
 		}
 
 		if trigger.WatchResource.APIVersion == "" {
-			return nil, fmt.Errorf("trigger %d has no watch resource or interval", ti)
+			return nil, fmt.Errorf("trigger %q has no watch resource or interval", trigger.Name)
 		}
 
 		watchTarget, dc, err := r.newCacheForResourceAndRESTClient(cctx, trigger.WatchResource, rc, mr.GetNamespace())
 		if err != nil {
 			cancel()
-			return nil, fmt.Errorf("failed to create cache for trigger %d: %w", ti, err)
+			return nil, fmt.Errorf("failed to create cache for trigger %q: %w", trigger.Name, err)
 		}
 
-		ci.triggerCaches[ti] = dc
+		ci.triggerCaches[trigger.Name] = dc
 
-		if err := r.controller.Watch(source.TypedKind(dc.cache, watchTarget, handler.TypedEnqueueRequestsFromMapFunc(staticMapFunc(client.ObjectKeyFromObject(&mr), ti)))); err != nil {
+		if err := r.controller.Watch(source.TypedKind(dc.cache, watchTarget, handler.TypedEnqueueRequestsFromMapFunc(staticMapFunc(client.ObjectKeyFromObject(&mr), trigger.Name)))); err != nil {
 			cancel()
 			return nil, err
 		}
 	}
 
-	for conI, con := range mr.Spec.Context {
+	for _, con := range mr.Spec.Context {
 		if con.Resource.APIVersion == "" {
-			return nil, fmt.Errorf("context %q has no resource", con.Def)
+			return nil, fmt.Errorf("context %q has no resource", con.Name)
 		}
 
 		watchTarget, dc, err := r.newCacheForResourceAndRESTClient(cctx, con.Resource, rc, mr.GetNamespace())
 		if err != nil {
 			cancel()
-			return nil, fmt.Errorf("failed to create cache for resource %d: %w", conI, err)
+			return nil, fmt.Errorf("failed to create cache for resource %q: %w", con.Name, err)
 		}
 
-		ci.contextCaches[conI] = dc
+		ci.contextCaches[con.Name] = dc
 
 		// We only allow querying objects with existing informers
 		if _, err := dc.cache.GetInformer(cctx, watchTarget); err != nil {
@@ -495,8 +494,11 @@ func (r *ManagedResourceReconciler) Setup(cfg *rest.Config, mgr ctrl.Manager) er
 // renderTriggers renders the trigger information for the given Request.
 func (r *ManagedResourceReconciler) renderTriggers(ctx context.Context, ci *instanceCache, req Request) (string, error) {
 	triggerInfo := struct {
-		WatchResource encjson.RawMessage `json:"WatchResource,omitempty"`
-	}{}
+		Name string             `json:"name,omitempty"`
+		Data encjson.RawMessage `json:"data,omitempty"`
+	}{
+		Name: req.TriggerInfo.TriggerName,
+	}
 
 	if req.TriggerInfo.WatchResource != (WatchResource{}) {
 		var triggerObj unstructured.Unstructured
@@ -505,18 +507,22 @@ func (r *ManagedResourceReconciler) renderTriggers(ctx context.Context, ci *inst
 			Version: req.TriggerInfo.WatchResource.APIVersion,
 			Kind:    req.TriggerInfo.WatchResource.Kind,
 		})
-		tc, ok := ci.triggerCaches[req.TriggerInfo.TriggerIndex]
+		tc, ok := ci.triggerCaches[req.TriggerInfo.TriggerName]
 		if !ok {
 			// Should not happen as we checked all cache configuration before
-			return "", fmt.Errorf("cache for trigger %d not found", req.TriggerInfo.TriggerIndex)
+			return "", fmt.Errorf("cache for trigger %q not found", req.TriggerInfo.TriggerName)
 		}
 		err := tc.cache.Get(ctx, types.NamespacedName{Namespace: req.TriggerInfo.WatchResource.Namespace, Name: req.TriggerInfo.WatchResource.Name}, &triggerObj)
 		if err == nil {
-			triggerJSONBytes, err := json.Marshal(triggerObj.UnstructuredContent())
+			triggerJSONBytes, err := json.Marshal(struct {
+				Resource map[string]any `json:"resource"`
+			}{
+				Resource: triggerObj.UnstructuredContent(),
+			})
 			if err != nil {
 				return "", fmt.Errorf("failed to marshal trigger info: %w", err)
 			}
-			triggerInfo.WatchResource = triggerJSONBytes
+			triggerInfo.Data = triggerJSONBytes
 		} else if apierrors.IsNotFound(err) {
 			log.FromContext(ctx).WithValues("trigger", req.TriggerInfo.WatchResource).Info("trigger object not found, was deleted")
 		} else {
@@ -534,14 +540,14 @@ func (r *ManagedResourceReconciler) renderTriggers(ctx context.Context, ci *inst
 // renderContexts renders the context information for the given ManagedResource.
 func (r *ManagedResourceReconciler) renderContexts(ctx context.Context, ci *instanceCache, managedResource espejotev1alpha1.ManagedResource) (string, error) {
 	contexts := map[string]any{}
-	for i, con := range managedResource.Spec.Context {
+	for _, con := range managedResource.Spec.Context {
 		if con.Resource.APIVersion == "" {
 			continue
 		}
-		cc, ok := ci.contextCaches[i]
+		cc, ok := ci.contextCaches[con.Name]
 		if !ok {
 			// Should not happen as we checked all cache configuration before
-			return "", fmt.Errorf("cache for context %d not found", i)
+			return "", fmt.Errorf("cache for context %q not found", con.Name)
 		}
 		var contextObj unstructured.Unstructured
 		contextObj.SetGroupVersionKind(schema.GroupVersionKind{
@@ -561,7 +567,7 @@ func (r *ManagedResourceReconciler) renderContexts(ctx context.Context, ci *inst
 		for i, obj := range contextObjs.Items {
 			unwrapped[i] = obj.UnstructuredContent()
 		}
-		contexts[con.Def] = unwrapped
+		contexts[con.Name] = unwrapped
 	}
 	contextJSON, err := json.Marshal(contexts)
 	if err != nil {
@@ -733,7 +739,7 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 // setupIntervalTrigger sets up a trigger that fires every interval.
 // The trigger is enqueued with the ManagedResource's key and the trigger index.
 // The trigger is shut down when the context is canceled.
-func (r *ManagedResourceReconciler) setupIntervalTrigger(ctx context.Context, interval time.Duration, mrKey types.NamespacedName, triggerIndex int) error {
+func (r *ManagedResourceReconciler) setupIntervalTrigger(ctx context.Context, interval time.Duration, mrKey types.NamespacedName, triggerName string) error {
 	tick := time.NewTicker(interval)
 	evChan := make(chan event.TypedGenericEvent[time.Time])
 	go func() {
@@ -756,18 +762,18 @@ func (r *ManagedResourceReconciler) setupIntervalTrigger(ctx context.Context, in
 	}()
 
 	return r.controller.Watch(source.TypedChannel(evChan, handler.TypedEnqueueRequestsFromMapFunc(func(_ context.Context, _ time.Time) []Request {
-		return []Request{{NamespacedName: mrKey, TriggerInfo: TriggerInfo{TriggerIndex: triggerIndex}}}
+		return []Request{{NamespacedName: mrKey, TriggerInfo: TriggerInfo{TriggerName: triggerName}}}
 	})))
 }
 
-func staticMapFunc(r types.NamespacedName, triggerIndex int) func(context.Context, client.Object) []Request {
+func staticMapFunc(r types.NamespacedName, triggerName string) func(context.Context, client.Object) []Request {
 	return func(_ context.Context, o client.Object) []Request {
 		gvk := o.GetObjectKind().GroupVersionKind()
 		return []Request{
 			{
 				NamespacedName: r,
 				TriggerInfo: TriggerInfo{
-					TriggerIndex: triggerIndex,
+					TriggerName: triggerName,
 
 					WatchResource: WatchResource{
 						APIVersion: gvk.Version,
@@ -922,4 +928,18 @@ func deleteOptionsFromRenderedObject(obj *unstructured.Unstructured) (shouldDele
 	}
 
 	return
+}
+
+// findFirstDuplicate finds the first duplicate element in the given slice.
+// Returns true if a duplicate was found and the duplicate element.
+func findFirstDuplicate[T any, E comparable](s []T, f func(T) E) (found bool, duplicate E) {
+	cns := sets.New[E]()
+	for _, el := range s {
+		v := f(el)
+		if cns.Has(v) {
+			return true, v
+		}
+		cns.Insert(v)
+	}
+	return false, duplicate
 }

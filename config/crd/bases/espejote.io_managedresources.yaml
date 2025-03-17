@@ -78,8 +78,8 @@ spec:
                 description: Context defines the context for the ManagedResource
                 items:
                   properties:
-                    def:
-                      description: Def is the name of the context definition. The
+                    name:
+                      description: Name is the name of the context definition. The
                         context can be referenced in the template by this name.
                       minLength: 1
                       type: string
@@ -179,7 +179,7 @@ spec:
                           type: string
                       type: object
                   required:
-                  - def
+                  - name
                   type: object
                 type: array
               serviceAccountRef:
@@ -227,6 +227,11 @@ spec:
                       description: Interval defines the interval at which the ManagedResource
                         should be reconciled.
                       format: duration
+                      type: string
+                    name:
+                      description: Name is the name of the trigger. The trigger can
+                        be referenced in the template by this name.
+                      minLength: 1
                       type: string
                     watchResource:
                       description: |-
@@ -321,6 +326,8 @@ spec:
                             Can be explicitly set to empty string to watch all namespaces.
                           type: string
                       type: object
+                  required:
+                  - name
                   type: object
                 type: array
             type: object
