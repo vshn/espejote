@@ -19,6 +19,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	metricserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
 )
@@ -40,6 +41,9 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme,
+		Metrics: metricserver.Options{
+			BindAddress: ":0",
+		},
 	})
 	require.NoError(t, err)
 	subject := &ManagedResourceReconciler{
@@ -53,7 +57,9 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 
 	mgrCtx, mgrCancel := context.WithCancel(ctx)
 	t.Cleanup(mgrCancel)
-	go mgr.Start(mgrCtx)
+	go func() {
+		require.NoError(t, mgr.Start(mgrCtx))
+	}()
 
 	t.Run("reconcile from added watch resource trigger", func(t *testing.T) {
 		t.Parallel()
