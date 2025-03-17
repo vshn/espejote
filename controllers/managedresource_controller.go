@@ -273,7 +273,7 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 			continue
 		}
 		if shouldDelete {
-			if err := c.Delete(ctx, stripUnstructuredForDelete(obj), opts...); err != nil {
+			if err := c.Delete(ctx, stripUnstructuredForDelete(obj), opts...); client.IgnoreNotFound(err) != nil {
 				applyErrs = append(applyErrs, fmt.Errorf("failed to delete object %q %q: %w", obj.GetObjectKind(), obj.GetName(), err))
 			}
 			continue
@@ -873,7 +873,9 @@ func stripUnstructuredForDelete(u *unstructured.Unstructured) *unstructured.Unst
 // - preconditionResourceVersion: string, optional, the resource version of the object that must match for deletion
 // The first return value is true if the object should be deleted.
 func deleteOptionsFromRenderedObject(obj *unstructured.Unstructured) (shouldDelete bool, opts []client.DeleteOption, err error) {
-	shouldDelete, _, err = unstructured.NestedBool(obj.UnstructuredContent(), "__internal_use_espejote_lib_deletion", "delete")
+	const deletionKey = "__internal_use_espejote_lib_deletion"
+
+	shouldDelete, _, err = unstructured.NestedBool(obj.UnstructuredContent(), deletionKey, "delete")
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to get deletion flag: %w", err)
 	}
@@ -881,7 +883,7 @@ func deleteOptionsFromRenderedObject(obj *unstructured.Unstructured) (shouldDele
 		return false, nil, nil
 	}
 
-	gracePeriodSeconds, ok, err := unstructured.NestedInt64(obj.UnstructuredContent(), "__internal_use_espejote_lib_deletion", "gracePeriodSeconds")
+	gracePeriodSeconds, ok, err := unstructured.NestedInt64(obj.UnstructuredContent(), deletionKey, "gracePeriodSeconds")
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to get deletion grace period: %w", err)
 	}
@@ -889,7 +891,7 @@ func deleteOptionsFromRenderedObject(obj *unstructured.Unstructured) (shouldDele
 		opts = append(opts, client.GracePeriodSeconds(gracePeriodSeconds))
 	}
 
-	propagationPolicy, ok, err := unstructured.NestedString(obj.UnstructuredContent(), "__internal_use_espejote_lib_deletion", "propagationPolicy")
+	propagationPolicy, ok, err := unstructured.NestedString(obj.UnstructuredContent(), deletionKey, "propagationPolicy")
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to get deletion propagation policy: %w", err)
 	}
@@ -899,7 +901,7 @@ func deleteOptionsFromRenderedObject(obj *unstructured.Unstructured) (shouldDele
 
 	preconditions := metav1.Preconditions{}
 	hasPreconditions := false
-	preconditionUID, ok, err := unstructured.NestedString(obj.UnstructuredContent(), "__internal_use_espejote_lib_deletion", "preconditionUID")
+	preconditionUID, ok, err := unstructured.NestedString(obj.UnstructuredContent(), deletionKey, "preconditionUID")
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to get deletion precondition UID: %w", err)
 	}
@@ -907,7 +909,7 @@ func deleteOptionsFromRenderedObject(obj *unstructured.Unstructured) (shouldDele
 		hasPreconditions = true
 		preconditions.UID = ptr.To(types.UID(preconditionUID))
 	}
-	preconditionResourceVersion, ok, err := unstructured.NestedString(obj.UnstructuredContent(), "__internal_use_espejote_lib_deletion", "preconditionResourceVersion")
+	preconditionResourceVersion, ok, err := unstructured.NestedString(obj.UnstructuredContent(), deletionKey, "preconditionResourceVersion")
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to get deletion precondition resource version: %w", err)
 	}

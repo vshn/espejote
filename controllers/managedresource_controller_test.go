@@ -811,6 +811,44 @@ std.map(
 			assert.ElementsMatch(t, []string{"test3:updated"}, cms)
 		}, 5*time.Second, 100*time.Millisecond)
 	})
+
+	t.Run("deletion ignores NotFound errors", func(t *testing.T) {
+		t.Parallel()
+
+		testns := tmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				ApplyOptions: espejotev1alpha1.ApplyOptions{
+					Force: true,
+				},
+				Template: `
+local esp = import 'espejote.libsonnet';
+
+[
+  esp.markForDelete({
+    apiVersion: "v1",
+    kind: "ConfigMap",
+    metadata: {
+      name: "test",
+      namespace: "` + testns + `",
+    },
+  }),
+]
+`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			assert.Equal(t, "Ready", mr.Status.Status)
+		}, 5*time.Second, 100*time.Millisecond)
+	})
 }
 
 func eventSelectorFor(managedResourceName string) client.ListOption {

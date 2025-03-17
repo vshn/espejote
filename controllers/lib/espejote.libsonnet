@@ -11,10 +11,17 @@ local triggerTypeWatchResource = 'WatchResource';
   // Gets the trigger that caused the template to be called or null if unknown
   getTrigger: function() if trigger != null then std.get(trigger, triggerTypeWatchResource) else null,
 
-  // Gets the context object. Always a non-null object with the definition as keys.
+  // Gets the context object. Always a non-null object with the `contexts[].def` value as keys.
   context: function() context,
 
   // Marks an object for deletion.
+  // The object will be deleted by the controller.
+  // NotFound errors are ignored.
+  // Deletion options can be passed as optional arguments:
+  // - gracePeriodSeconds: number, the grace period for the deletion
+  // - propagationPolicy: string, the deletion propagation policy (Background, Foreground, Orphan)
+  // - preconditionUID: string, the UID of the object that must match for deletion
+  // - preconditionResourceVersion: string, the resource version of the object that must match for deletion
   markForDelete:
     function(
       obj,
