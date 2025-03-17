@@ -283,6 +283,7 @@ type ManagedResourceStatus struct {
 //+kubebuilder:subresource:status
 
 // ManagedResource is the Schema for the ManagedResources API
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.status`
 type ManagedResource struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
