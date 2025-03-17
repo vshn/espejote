@@ -73,6 +73,10 @@ type ApplyOptions struct {
 }
 
 type ManagedResourceTrigger struct {
+	// Name is the name of the trigger. The trigger can be referenced in the template by this name.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
 	// Interval defines the interval at which the ManagedResource should be reconciled.
 	// +kubebuilder:validation:Format=duration
 	Interval metav1.Duration `json:"interval,omitempty"`
@@ -180,9 +184,9 @@ func (t TriggerWatchResource) String() string {
 }
 
 type ManagedResourceContext struct {
-	// Def is the name of the context definition. The context can be referenced in the template by this name.
+	// Name is the name of the context definition. The context can be referenced in the template by this name.
 	// +kubebuilder:validation:MinLength=1
-	Def string `json:"def"`
+	Name string `json:"name"`
 
 	// Resource defines the resource that should be added to the context.
 	// Adds a list of zero or more resources to the context.

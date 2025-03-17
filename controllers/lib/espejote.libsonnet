@@ -1,17 +1,15 @@
 local context = std.extVar('__internal_use_espejote_lib_context');
 local trigger = std.extVar('__internal_use_espejote_lib_trigger');
 
-local triggerTypeWatchResource = 'WatchResource';
-
 {
-  TriggerTypeWatchResource: triggerTypeWatchResource,
-
   // Returns the name of the trigger that caused the template to be called or null if unknown
-  triggerType: function() if trigger != null && std.objectHas(trigger, triggerTypeWatchResource) then triggerTypeWatchResource else null,
-  // Gets the trigger that caused the template to be called or null if unknown
-  getTrigger: function() if trigger != null then std.get(trigger, triggerTypeWatchResource) else null,
+  triggerName: function() std.get(trigger, 'name'),
+  // Gets data added to the trigger by the controller.
+  // Currently only available for WatchResource triggers.
+  // WatchResource triggers add the full object that triggered the template to the trigger data under the key `resource`.
+  triggerData: function() std.get(trigger, 'data'),
 
-  // Gets the context object. Always a non-null object with the `contexts[].def` value as keys.
+  // Gets the context object. Always a non-null object with the `contexts[].name` value as keys.
   context: function() context,
 
   // Marks an object for deletion.
