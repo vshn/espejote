@@ -715,10 +715,20 @@ local cms = esp.context()["cms"];
 			require.NoError(t, c.Update(ctx, &cm))
 		}
 
+		t.Log("waiting for the update to be reflected in the client cache, note that the client cache does not guarantee any read after write consistency")
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			assert.Equal(t, "test", cm.Data["test"])
+		}, 5*time.Second, 100*time.Millisecond)
 		require.Never(t, func() bool {
 			var cm corev1.ConfigMap
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
-			return cm.Data["test"] != "test"
+			if cm.Data["test"] != "test" {
+				t.Logf("test data is %q, expected %q", cm.Data["test"], "test")
+				return true
+			}
+			return false
 		}, 2*time.Second, 10*time.Millisecond, "Trigger should be shut down and thus stop updating the resource")
 	})
 
