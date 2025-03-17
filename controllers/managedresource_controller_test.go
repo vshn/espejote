@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -148,7 +149,7 @@ if esp.triggerType() == esp.TriggerTypeWatchResource && trigger.kind == "Namespa
 
 		testns := tmpNamespace(t, c)
 
-		for i := 0; i < 500; i++ {
+		for i := range 500 {
 			cm := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test" + strconv.Itoa(i),
@@ -719,6 +720,134 @@ local cms = esp.context()["cms"];
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
 			return cm.Data["test"] != "test"
 		}, 2*time.Second, 10*time.Millisecond, "Trigger should be shut down and thus stop updating the resource")
+	})
+
+	t.Run("object deletion", func(t *testing.T) {
+		t.Parallel()
+
+		testns := tmpNamespace(t, c)
+
+		for i := range 4 {
+			cm := &corev1.ConfigMap{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: "v1",
+					Kind:       "ConfigMap",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test" + strconv.Itoa(i),
+					Namespace: testns,
+					Annotations: map[string]string{
+						"index": strconv.Itoa(i),
+					},
+					Labels: map[string]string{
+						"managed": "true",
+					},
+				},
+				Data: map[string]string{
+					"test": "test",
+				},
+			}
+			require.NoError(t, c.Create(ctx, cm))
+		}
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Context: []espejotev1alpha1.ManagedResourceContext{{
+					Def: "cms",
+					Resource: espejotev1alpha1.ContextResource{
+						APIVersion: "v1",
+						Kind:       "ConfigMap",
+						LabelSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{"managed": "true"},
+						},
+					},
+				}},
+				ApplyOptions: espejotev1alpha1.ApplyOptions{
+					Force: true,
+				},
+				Template: `
+local esp = import 'espejote.libsonnet';
+
+local cms = esp.context().cms;
+
+std.map(
+  function(obj)
+    if std.parseInt(obj.metadata.annotations.index) == 0 then
+      esp.markForDelete(obj, gracePeriodSeconds=0, propagationPolicy="Background")
+    else if std.parseInt(obj.metadata.annotations.index) == 1 then
+      esp.markForDelete(obj, preconditionUID=obj.metadata.uid)
+    else if std.parseInt(obj.metadata.annotations.index) == 2 then
+      esp.markForDelete(obj, preconditionResourceVersion=obj.metadata.resourceVersion)
+    else
+      {
+        apiVersion: obj.apiVersion,
+        kind: obj.kind,
+        metadata: {
+          name: obj.metadata.name,
+          namespace: obj.metadata.namespace,
+        },
+        data: {
+          test: 'updated',
+        },
+      }
+  , cms
+)`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cml corev1.ConfigMapList
+			require.NoError(t, c.List(ctx, &cml, client.InNamespace(testns)))
+
+			var cms []string
+			for _, cm := range cml.Items {
+				cms = append(cms, strings.Join([]string{cm.Name, cm.Data["test"]}, ":"))
+			}
+			assert.ElementsMatch(t, []string{"test3:updated"}, cms)
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
+	t.Run("deletion ignores NotFound errors", func(t *testing.T) {
+		t.Parallel()
+
+		testns := tmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				ApplyOptions: espejotev1alpha1.ApplyOptions{
+					Force: true,
+				},
+				Template: `
+local esp = import 'espejote.libsonnet';
+
+[
+  esp.markForDelete({
+    apiVersion: "v1",
+    kind: "ConfigMap",
+    metadata: {
+      name: "test",
+      namespace: "` + testns + `",
+    },
+  }),
+]
+`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			assert.Equal(t, "Ready", mr.Status.Status)
+		}, 5*time.Second, 100*time.Millisecond)
 	})
 }
 
