@@ -6,4 +6,5 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: jsonnetlibrary-sample
 spec:
-  # TODO(user): Add fields here
+  data:
+    sample.libsonnet: "{Sample: 'Hello World'}"
