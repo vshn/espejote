@@ -971,7 +971,7 @@ local esp = import 'espejote.libsonnet';
 		}
 		require.NoError(t, c.Create(ctx, mr))
 
-		gatherer := filteringGatherer{
+		inNsGatherer := filteringGatherer{
 			gatherer: urlGatherer(fmt.Sprintf("http://localhost:%d/metrics", metricsPort)),
 			filter: func(mf *dto.MetricFamily, m *dto.Metric) bool {
 				if mf.GetName() == "espejote_reconciles_total" {
@@ -983,7 +983,7 @@ local esp = import 'espejote.libsonnet';
 		}
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
-			assert.NoError(t, testutil.GatherAndCompare(gatherer, strings.NewReader(`
+			assert.NoError(t, testutil.GatherAndCompare(inNsGatherer, strings.NewReader(`
 # HELP espejote_cached_objects Number of objects in the cache.
 # TYPE espejote_cached_objects gauge
 espejote_cached_objects{managedresource="test",name="all-cms",namespace="`+testns+`",type="context"} 100
@@ -1000,7 +1000,23 @@ espejote_reconciles_total{managedresource="test",namespace="`+testns+`",trigger=
 `), "espejote_cached_objects", "espejote_cache_size_bytes", "espejote_reconciles_total"), "espejote_cache_size_bytes may needs updating when switching between client or apiserver versions")
 		}, 5*time.Second, 100*time.Millisecond)
 
-		lintproblem, err := testutil.GatherAndLint(gatherer)
+		t.Log("error metrics")
+		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+		mr.Spec.Template = `glug`
+		require.NoError(t, c.Update(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			metrics, err := inNsGatherer.Gather()
+			require.NoError(t, err)
+			filtered := filterMetrics(metrics, func(mf *dto.MetricFamily, m *dto.Metric) bool {
+				return mf.GetName() == "espejote_reconcile_errors_total" &&
+					metricHasLabelPair("trigger", "")(m) &&
+					metricHasLabelPair("error_kind", string(TemplateError))(m)
+			})
+			assert.Len(t, filtered, 1, "expected one error metric with the error kind %q", TemplateError)
+		}, 5*time.Second, 100*time.Millisecond)
+
+		lintproblem, err := testutil.GatherAndLint(inNsGatherer)
 		require.NoError(t, err)
 		assert.Empty(t, lintproblem)
 	})
@@ -1015,6 +1031,16 @@ func metricHasLabelPair(name, value string) func(*dto.Metric) bool {
 	}
 }
 
+// filterMetrics filters MetricFamilies based on a filter function.
+// MetricFamilies are dropped if all their metrics are filtered.
+func filterMetrics(mfs []*dto.MetricFamily, filter func(*dto.MetricFamily, *dto.Metric) (keep bool)) []*dto.MetricFamily {
+	for _, mf := range mfs {
+		mf.Metric = slices.DeleteFunc(mf.Metric, func(m *dto.Metric) bool { return !filter(mf, m) })
+	}
+
+	return slices.DeleteFunc(mfs, func(mf *dto.MetricFamily) bool { return len(mf.Metric) < 1 })
+}
+
 // filteringGatherer is a prometheus.Gatherer that filters metrics based on a filter function.
 // MetricFamilies are dropped if all their metrics are filtered.
 type filteringGatherer struct {
@@ -1024,15 +1050,7 @@ type filteringGatherer struct {
 
 func (f filteringGatherer) Gather() ([]*dto.MetricFamily, error) {
 	mfs, err := f.gatherer.Gather()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, mf := range mfs {
-		mf.Metric = slices.DeleteFunc(mf.Metric, func(m *dto.Metric) bool { return !f.filter(mf, m) })
-	}
-
-	return slices.DeleteFunc(mfs, func(mf *dto.MetricFamily) bool { return len(mf.Metric) < 1 }), nil
+	return filterMetrics(mfs, f.filter), err
 }
 
 func urlGatherer(url string) prometheus.Gatherer {
