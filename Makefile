@@ -65,7 +65,7 @@ clean: ## Cleans up the generated resources
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./main.go
+	go run ./main.go controller
 
 LOCALBIN ?= $(shell pwd)/bin
 $(LOCALBIN):
