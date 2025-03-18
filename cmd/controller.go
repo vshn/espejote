@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	espejoteiov1alpha1 "github.com/vshn/espejote/api/v1alpha1"
+	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
 	"github.com/vshn/espejote/controllers"
 	//+kubebuilder:scaffold:imports
 )
@@ -25,7 +25,6 @@ import (
 var metricsAddr string
 var enableLeaderElection bool
 var probeAddr string
-var jsonnetLibraryNamespace string
 var zapOpts = zap.Options{
 	Development: true,
 }
@@ -43,11 +42,7 @@ func init() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 
-	defaultNamespace := "default"
-	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
-		defaultNamespace = ns
-	}
-	controllerCmd.Flags().StringVar(&jsonnetLibraryNamespace, "jsonnet-library-namespace", defaultNamespace, "The namespace that the controller watches for jsonnet libraries.")
+	registerJsonnetLibraryNamespaceFlag(controllerCmd)
 }
 
 var controllerCmd = &cobra.Command{
@@ -62,7 +57,7 @@ func runController(cmd *cobra.Command, _ []string) {
 	scheme := runtime.NewScheme()
 
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(espejoteiov1alpha1.AddToScheme(scheme))
+	utilruntime.Must(espejotev1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))

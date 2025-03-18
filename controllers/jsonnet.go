@@ -79,3 +79,32 @@ func (importer *ManifestImporter) Import(_, importedPath string) (contents jsonn
 	}
 	return jsonnet.Contents{}, "", fmt.Errorf("import %q not available: key %q not found in manifest %q", importedPath, key, manifestName)
 }
+
+// FromClientImporter returns an importer that fetches libraries from the cluster using the given client.
+// "espejote.libsonnet" is statically embedded.
+func FromClientImporter(c client.Client, localNamespace, libNamespace string) jsonnet.Importer {
+	return &MultiImporter{
+		Importers: []MultiImporterConfig{
+			{
+				Importer: &jsonnet.MemoryImporter{
+					Data: map[string]jsonnet.Contents{
+						"espejote.libsonnet": jsonnet.MakeContents(espejoteLibsonnet),
+					},
+				},
+			},
+			{
+				TrimPathPrefix: "lib/",
+				Importer: &ManifestImporter{
+					Client:    c,
+					Namespace: libNamespace,
+				},
+			},
+			{
+				Importer: &ManifestImporter{
+					Client:    c,
+					Namespace: localNamespace,
+				},
+			},
+		},
+	}
+}

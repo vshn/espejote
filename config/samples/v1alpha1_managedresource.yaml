@@ -44,7 +44,7 @@ spec:
       },
       data: {
         sample: samplelib.Sample,
-        nsLabel: ns.metadata.labels["managedresource-sample.espejote.io/inject-cm"],
+        nsLabel: std.get(ns.metadata.labels, "managedresource-sample.espejote.io/inject-cm"),
       },
     };
 

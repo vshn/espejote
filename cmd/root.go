@@ -8,6 +8,17 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
+var jsonnetLibraryNamespace string
+
+func registerJsonnetLibraryNamespaceFlag(cmd *cobra.Command) {
+	defaultNamespace := "default"
+	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+		defaultNamespace = ns
+	}
+
+	cmd.Flags().StringVar(&jsonnetLibraryNamespace, "jsonnet-library-namespace", defaultNamespace, "The namespace to look for Jsonnet libraries in.")
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "espejote",
 	Short: "Espejote manages arbitrary resources in a Kubernetes cluster.",

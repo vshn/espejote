@@ -99,6 +99,24 @@ func (ci *instanceCache) Stop() {
 	ci.stop()
 }
 
+// clientForTrigger returns a client.Reader for the given trigger.
+func (ci *instanceCache) clientForTrigger(triggerName string) (client.Reader, error) {
+	dc, ok := ci.triggerCaches[triggerName]
+	if !ok {
+		return nil, fmt.Errorf("cache for trigger %q not found", triggerName)
+	}
+	return dc.cache, nil
+}
+
+// clientForContext returns a client.Reader for the given context.
+func (ci *instanceCache) clientForContext(contextName string) (client.Reader, error) {
+	dc, ok := ci.contextCaches[contextName]
+	if !ok {
+		return nil, fmt.Errorf("cache for context %q not found", contextName)
+	}
+	return dc.cache, nil
+}
+
 func (ci *instanceCache) AllCachesReady() (bool, error) {
 	ret := true
 	errs := make([]error, 0, len(ci.triggerCaches))
@@ -223,50 +241,14 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	jvm := jsonnet.MakeVM()
-	jvm.Importer(&MultiImporter{
-		Importers: []MultiImporterConfig{
-			{
-				Importer: &jsonnet.MemoryImporter{
-					Data: map[string]jsonnet.Contents{
-						"espejote.libsonnet": jsonnet.MakeContents(espejoteLibsonnet),
-					},
-				},
-			},
-			{
-				TrimPathPrefix: "lib/",
-				Importer: &ManifestImporter{
-					Client:    r.Client,
-					Namespace: r.JsonnetLibraryNamespace,
-				},
-			},
-			{
-				Importer: &ManifestImporter{
-					Client:    r.Client,
-					Namespace: managedResource.GetNamespace(),
-				},
-			},
-		},
-	})
-
-	triggerJSON, err := r.renderTriggers(ctx, ci, req)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to render triggers: %w", err)
-	}
-	// Mark as internal so we can change the implementation later, to make it more efficient for example
-	jvm.ExtCode("__internal_use_espejote_lib_trigger", triggerJSON)
-
-	contextJSON, err := r.renderContexts(ctx, ci, managedResource)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to render contexts: %w", err)
-	}
-	jvm.ExtCode("__internal_use_espejote_lib_context", contextJSON)
-
-	rendered, err := jvm.EvaluateAnonymousSnippet("template", managedResource.Spec.Template)
+	rendered, err := (&Renderer{
+		Importer:            FromClientImporter(r.Client, managedResource.GetNamespace(), r.JsonnetLibraryNamespace),
+		TriggerClientGetter: ci.clientForTrigger,
+		ContextClientGetter: ci.clientForContext,
+	}).Render(ctx, managedResource, req.TriggerInfo)
 	if err != nil {
 		return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to render template: %w", err), TemplateError)
 	}
-	rendered = strings.Trim(rendered, " \t\r\n")
 
 	objects, err := r.unpackRenderedObjects(ctx, rendered)
 	if err != nil {
@@ -519,28 +501,60 @@ func (r *ManagedResourceReconciler) Setup(cfg *rest.Config, mgr ctrl.Manager) er
 	return err
 }
 
+// Render renders the given ManagedResource.
+type Renderer struct {
+	Importer jsonnet.Importer
+
+	TriggerClientGetter func(triggerName string) (client.Reader, error)
+	ContextClientGetter func(contextName string) (client.Reader, error)
+}
+
+// Render renders the given ManagedResource.
+func (r *Renderer) Render(ctx context.Context, managedResource espejotev1alpha1.ManagedResource, ti TriggerInfo) (string, error) {
+	jvm := jsonnet.MakeVM()
+	jvm.Importer(r.Importer)
+
+	triggerJSON, err := r.renderTriggers(ctx, r.TriggerClientGetter, ti)
+	if err != nil {
+		return "", fmt.Errorf("failed to render triggers: %w", err)
+	}
+	// Mark as internal so we can change the implementation later, to make it more efficient for example
+	jvm.ExtCode("__internal_use_espejote_lib_trigger", triggerJSON)
+
+	contextJSON, err := r.renderContexts(ctx, r.ContextClientGetter, managedResource)
+	if err != nil {
+		return "", fmt.Errorf("failed to render contexts: %w", err)
+	}
+	jvm.ExtCode("__internal_use_espejote_lib_context", contextJSON)
+
+	rendered, err := jvm.EvaluateAnonymousSnippet("template", managedResource.Spec.Template)
+	if err != nil {
+		return "", fmt.Errorf("failed to render template: %w", err)
+	}
+	return strings.Trim(rendered, " \t\r\n"), nil
+}
+
 // renderTriggers renders the trigger information for the given Request.
-func (r *ManagedResourceReconciler) renderTriggers(ctx context.Context, ci *instanceCache, req Request) (string, error) {
+func (r *Renderer) renderTriggers(ctx context.Context, getReader func(string) (client.Reader, error), ti TriggerInfo) (string, error) {
 	triggerInfo := struct {
 		Name string             `json:"name,omitempty"`
 		Data encjson.RawMessage `json:"data,omitempty"`
 	}{
-		Name: req.TriggerInfo.TriggerName,
+		Name: ti.TriggerName,
 	}
 
-	if req.TriggerInfo.WatchResource != (WatchResource{}) {
+	if ti.WatchResource != (WatchResource{}) {
 		var triggerObj unstructured.Unstructured
 		triggerObj.SetGroupVersionKind(schema.GroupVersionKind{
-			Group:   req.TriggerInfo.WatchResource.Group,
-			Version: req.TriggerInfo.WatchResource.APIVersion,
-			Kind:    req.TriggerInfo.WatchResource.Kind,
+			Group:   ti.WatchResource.Group,
+			Version: ti.WatchResource.APIVersion,
+			Kind:    ti.WatchResource.Kind,
 		})
-		tc, ok := ci.triggerCaches[req.TriggerInfo.TriggerName]
-		if !ok {
-			// Should not happen as we checked all cache configuration before
-			return "", fmt.Errorf("cache for trigger %q not found", req.TriggerInfo.TriggerName)
+		reader, err := getReader(ti.TriggerName)
+		if err != nil {
+			return "", fmt.Errorf("failed to get reader for trigger: %w", err)
 		}
-		err := tc.cache.Get(ctx, types.NamespacedName{Namespace: req.TriggerInfo.WatchResource.Namespace, Name: req.TriggerInfo.WatchResource.Name}, &triggerObj)
+		err = reader.Get(ctx, types.NamespacedName{Namespace: ti.WatchResource.Namespace, Name: ti.WatchResource.Name}, &triggerObj)
 		if err == nil {
 			triggerJSONBytes, err := json.Marshal(struct {
 				Resource map[string]any `json:"resource"`
@@ -552,7 +566,7 @@ func (r *ManagedResourceReconciler) renderTriggers(ctx context.Context, ci *inst
 			}
 			triggerInfo.Data = triggerJSONBytes
 		} else if apierrors.IsNotFound(err) {
-			log.FromContext(ctx).WithValues("trigger", req.TriggerInfo.WatchResource).Info("trigger object not found, was deleted")
+			log.FromContext(ctx).WithValues("trigger", ti.WatchResource).Info("trigger object not found, was deleted")
 		} else {
 			return "", fmt.Errorf("failed to get trigger object: %w", err)
 		}
@@ -566,16 +580,15 @@ func (r *ManagedResourceReconciler) renderTriggers(ctx context.Context, ci *inst
 }
 
 // renderContexts renders the context information for the given ManagedResource.
-func (r *ManagedResourceReconciler) renderContexts(ctx context.Context, ci *instanceCache, managedResource espejotev1alpha1.ManagedResource) (string, error) {
+func (r *Renderer) renderContexts(ctx context.Context, getReader func(string) (client.Reader, error), managedResource espejotev1alpha1.ManagedResource) (string, error) {
 	contexts := map[string]any{}
 	for _, con := range managedResource.Spec.Context {
 		if con.Resource.APIVersion == "" {
 			continue
 		}
-		cc, ok := ci.contextCaches[con.Name]
-		if !ok {
-			// Should not happen as we checked all cache configuration before
-			return "", fmt.Errorf("cache for context %q not found", con.Name)
+		reader, err := getReader(con.Name)
+		if err != nil {
+			return "", fmt.Errorf("failed to get reader for context: %w", err)
 		}
 		var contextObj unstructured.Unstructured
 		contextObj.SetGroupVersionKind(schema.GroupVersionKind{
@@ -587,7 +600,7 @@ func (r *ManagedResourceReconciler) renderContexts(ctx context.Context, ci *inst
 		if err != nil {
 			return "", fmt.Errorf("failed to build context list: %w", err)
 		}
-		if err := cc.cache.List(ctx, contextObjs); err != nil {
+		if err := reader.List(ctx, contextObjs); err != nil {
 			return "", fmt.Errorf("failed to list context objects: %w", err)
 		}
 
