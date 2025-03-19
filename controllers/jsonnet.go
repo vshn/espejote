@@ -15,7 +15,7 @@ import (
 )
 
 //go:embed lib/espejote.libsonnet
-var espejoteLibsonnet string
+var EspejoteLibsonnet string
 
 // MultiImporter imports from multiple importers.
 // It tries each importer in order until one succeeds.
@@ -88,7 +88,7 @@ func FromClientImporter(c client.Client, localNamespace, libNamespace string) js
 			{
 				Importer: &jsonnet.MemoryImporter{
 					Data: map[string]jsonnet.Contents{
-						"espejote.libsonnet": jsonnet.MakeContents(espejoteLibsonnet),
+						"espejote.libsonnet": jsonnet.MakeContents(EspejoteLibsonnet),
 					},
 				},
 			},

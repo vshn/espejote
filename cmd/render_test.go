@@ -2,21 +2,62 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/vshn/espejote/testutil"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+func Test_runRender_Cluster(t *testing.T) {
+	scheme, restCfg := testutil.SetupEnvtestEnv(t)
+
+	cli, err := client.New(restCfg, client.Options{
+		Scheme: scheme,
+	})
+	require.NoError(t, err)
+
+	testns := testutil.TmpNamespace(t, cli)
+
+	for i := range 10 {
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("test-%d", i),
+				Namespace: testns,
+				Labels:    map[string]string{},
+			},
+		}
+		if i%2 != 0 {
+			cm.Labels["odd"] = "true"
+		}
+		require.NoError(t, cli.Create(t.Context(), cm))
+	}
+
+	out := new(bytes.Buffer)
+	cmd := NewRenderCommand(func() (*rest.Config, error) { return restCfg, nil })
+	cmd.SetArgs([]string{"testdata/render_cluster/managed_resource.yaml", "-n", testns})
+	cmd.SetOut(out)
+	require.NoError(t, cmd.Execute())
+
+	expected := strings.ReplaceAll(requireReadFile(t, "testdata/render_cluster/golden.yaml"), "NAMESPACE", testns) // Replace the generated namespace name
+	require.Equal(t, expected, out.String())
+}
 
 func Test_runRender_InputFile(t *testing.T) {
 	t.Parallel()
 
 	out := new(bytes.Buffer)
-
-	cmd := NewRenderCommand()
+	cmd := NewRenderCommand(func() (*rest.Config, error) { return nil, errors.New("should not connect to cluster") })
 	cmd.SetArgs([]string{"testdata/render_inputs/managed_resource.yaml", "--input", "testdata/render_inputs/input1.yaml"})
 	cmd.SetOut(out)
 	require.NoError(t, cmd.Execute())

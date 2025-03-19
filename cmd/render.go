@@ -20,8 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/json"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,22 +34,31 @@ import (
 var yellow = color.New(color.FgYellow, color.Bold).SprintFunc()
 
 func init() {
-	rootCmd.AddCommand(NewRenderCommand())
+	rootCmd.AddCommand(NewRenderCommand(ctrl.GetConfig))
 }
 
-func NewRenderCommand() *cobra.Command {
+func NewRenderCommand(
+	restConfigFunc func() (*rest.Config, error),
+) *cobra.Command {
+	cc := &renderCommandConfig{
+		restConfigFunc: restConfigFunc,
+	}
 	c := &cobra.Command{
 		Use:       "render path",
 		Short:     yellow("ALPHA") + " Renders a ManagedResource.",
 		Long:      yellow("ALPHA") + " Renders the given ManagedResource and prints the result to stdout.",
 		ValidArgs: []string{"path"},
 		Args:      cobra.ExactArgs(1),
-		Run:       runRender,
+		RunE:      cc.runRender,
 	}
 	registerJsonnetLibraryNamespaceFlag(c)
 	c.Flags().StringP("namespace", "n", "", "Namespace to use as the context for the ManagedResource. Overrides the given ManagedResource's namespace.")
 	c.Flags().StringArrayP("input", "I", nil, "Input files to use for rendering. If not set the cluster will be used to load triggers, context, libraries.")
 	return c
+}
+
+type renderCommandConfig struct {
+	restConfigFunc func() (*rest.Config, error)
 }
 
 type RenderInput struct {
@@ -69,36 +77,32 @@ type RenderInputContext struct {
 	Resources []*unstructured.Unstructured `json:"resources"`
 }
 
-func runRender(cmd *cobra.Command, args []string) {
+func (rcc *renderCommandConfig) runRender(cmd *cobra.Command, args []string) error {
 	renderNamespace, rnerr := cmd.Flags().GetString("namespace")
 	renderInputs, rierr := cmd.Flags().GetStringArray("input")
 	if err := multierr.Combine(rnerr, rierr); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to get flags: %s\n", err.Error())
-		os.Exit(1)
+		return fmt.Errorf("failed to get flags: %w", err)
 	}
 
 	ctx := cmd.Context()
 
 	raw, err := os.ReadFile(args[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to read file: %s\n", err.Error())
-		os.Exit(1)
+		return fmt.Errorf("failed to read managed resource file: %w", err)
 	}
 
 	var mr espejotev1alpha1.ManagedResource
 	if err := yaml.UnmarshalStrict(raw, &mr); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to unmarshal file: %s\n", err.Error())
-		os.Exit(1)
+		return fmt.Errorf("failed to unmarshal managed resource file: %w", err)
 	}
 
 	if len(renderInputs) > 0 {
-		renderFromInputs(ctx, cmd.OutOrStdout(), mr, renderInputs)
-		return
+		return rcc.renderFromInputs(ctx, cmd.OutOrStdout(), mr, renderInputs)
 	}
-	renderFromCluster(ctx, cmd.OutOrStdout(), mr, renderNamespace)
+	return rcc.renderFromCluster(ctx, cmd.OutOrStdout(), mr, renderNamespace)
 }
 
-func renderFromInputs(ctx context.Context, out io.Writer, mr espejotev1alpha1.ManagedResource, renderInputs []string) {
+func (rcc *renderCommandConfig) renderFromInputs(ctx context.Context, out io.Writer, mr espejotev1alpha1.ManagedResource, renderInputs []string) error {
 	inputs := make([]RenderInput, len(renderInputs))
 	inputErrs := make([]error, len(renderInputs))
 	for _, input := range renderInputs {
@@ -115,16 +119,14 @@ func renderFromInputs(ctx context.Context, out io.Writer, mr espejotev1alpha1.Ma
 		inputs = append(inputs, ri)
 	}
 	if err := multierr.Combine(inputErrs...); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load some inputs: %s\n", err.Error())
-		os.Exit(1)
+		return fmt.Errorf("some inputs failed to load: %w", err)
 	}
 
 	for _, input := range inputs {
 		contexts := make(map[string][]*unstructured.Unstructured)
 		for _, context := range input.Context {
 			if _, ok := contexts[context.Name]; ok {
-				fmt.Fprintf(os.Stderr, "Duplicate context name: %s\n", context.Name)
-				os.Exit(1)
+				return fmt.Errorf("duplicate context name: %s", context.Name)
 			}
 			contexts[context.Name] = context.Resources
 		}
@@ -164,16 +166,16 @@ func renderFromInputs(ctx context.Context, out io.Writer, mr espejotev1alpha1.Ma
 
 			rendered, err := renderer.Render(ctx, mr, ti)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to render: %s\n", err.Error())
-				os.Exit(1)
+				return fmt.Errorf("failed to render: %w", err)
 			}
 
 			if err := printRendered(out, rendered, ti); err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to print rendered output: %s\n", err.Error())
-				os.Exit(1)
+				return fmt.Errorf("failed to print rendered output: %w", err)
 			}
 		}
 	}
+
+	return nil
 }
 
 type staticUnstructuredReader struct {
@@ -206,12 +208,8 @@ func (r *staticUnstructuredReader) List(ctx context.Context, list client.ObjectL
 	return nil
 }
 
-func renderFromCluster(ctx context.Context, out io.Writer, mr espejotev1alpha1.ManagedResource, renderNamespace string) {
-	scheme := runtime.NewScheme()
-
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(espejotev1alpha1.AddToScheme(scheme))
-	//+kubebuilder:scaffold:scheme
+func (rcc *renderCommandConfig) renderFromCluster(ctx context.Context, out io.Writer, mr espejotev1alpha1.ManagedResource, renderNamespace string) error {
+	scheme := newScheme()
 
 	if renderNamespace != "" {
 		mr.Namespace = renderNamespace
@@ -222,28 +220,28 @@ func renderFromCluster(ctx context.Context, out io.Writer, mr espejotev1alpha1.M
 		mr.Namespace = "default"
 	}
 
-	restConf := ctrl.GetConfigOrDie()
+	restConf, err := rcc.restConfigFunc()
+	if err != nil {
+		return fmt.Errorf("failed to get rest config: %w", err)
+	}
 	c, err := client.New(restConf, client.Options{
 		Scheme: scheme,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create client: %s\n", err.Error())
-		os.Exit(1)
+		return fmt.Errorf("failed to create client: %w", err)
 	}
 
 	triggerCfgs := map[string]espejotev1alpha1.ManagedResourceTrigger{}
 	for _, trigger := range mr.Spec.Triggers {
 		if _, ok := triggerCfgs[trigger.Name]; ok {
-			fmt.Fprintf(os.Stderr, "Duplicate trigger name: %s\n", trigger.Name)
-			os.Exit(1)
+			return fmt.Errorf("duplicate trigger name: %s", trigger.Name)
 		}
 		triggerCfgs[trigger.Name] = trigger
 	}
 	contextCfgs := map[string]espejotev1alpha1.ManagedResourceContext{}
 	for _, context := range mr.Spec.Context {
 		if _, ok := contextCfgs[context.Name]; ok {
-			fmt.Fprintf(os.Stderr, "Duplicate context name: %s\n", context.Name)
-			os.Exit(1)
+			return fmt.Errorf("duplicate context name: %s", context.Name)
 		}
 		contextCfgs[context.Name] = context
 	}
@@ -271,6 +269,7 @@ func renderFromCluster(ctx context.Context, out io.Writer, mr espejotev1alpha1.M
 		r, err := readerForTrigger(trigger.Name)
 		if err != nil {
 			tColErrs = append(tColErrs, fmt.Errorf("failed to create reader for trigger %q: %w", trigger.Name, err))
+			continue
 		}
 		t := &unstructured.Unstructured{}
 		t.SetGroupVersionKind(schema.GroupVersionKind{
@@ -297,8 +296,7 @@ func renderFromCluster(ctx context.Context, out io.Writer, mr espejotev1alpha1.M
 		}
 	}
 	if err := multierr.Combine(tColErrs...); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load some triggers: %s\n", err.Error())
-		os.Exit(1)
+		return fmt.Errorf("some triggers failed to collect: %w", err)
 	}
 
 	renderer := &controllers.Renderer{
@@ -316,15 +314,15 @@ func renderFromCluster(ctx context.Context, out io.Writer, mr espejotev1alpha1.M
 	for _, trigger := range triggers {
 		rendered, err := renderer.Render(ctx, mr, trigger)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to render: %s\n", err.Error())
-			os.Exit(1)
+			return fmt.Errorf("failed to render: %w", err)
 		}
 
 		if err := printRendered(out, rendered, trigger); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to print rendered output: %s\n", err.Error())
-			os.Exit(1)
+			return fmt.Errorf("failed to print rendered output: %w", err)
 		}
 	}
+
+	return nil
 }
 
 func printRendered(w io.Writer, rendered string, trigger controllers.TriggerInfo) error {

@@ -34,16 +34,17 @@ import (
 	metricserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
+	"github.com/vshn/espejote/testutil"
 )
 
 // Test_ManagedResourceReconciler_Reconcile tests the ManagedResourceReconciler.
 // For efficiency, the tests are run in parallel and there is only one instance of the controller and api-server.
 // It is in the responsibility of the test to ensure that the resources do not conflict with each other.
-// Tests can use the `tmpNamespace()“ function to create a new namespace that is guaranteed to not conflict with namespaces of other tests.
-// Special care must be taken when modifying cluster scoped resources, for example by prefixing the resource names with the name returned from `tmpNamespace()`.
+// Tests can use the `testutil.TmpNamespace()“ function to create a new namespace that is guaranteed to not conflict with namespaces of other tests.
+// Special care must be taken when modifying cluster scoped resources, for example by prefixing the resource names with the name returned from `testutil.TmpNamespace()`.
 func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 	log.SetLogger(testr.New(t))
-	scheme, cfg := setupEnvtestEnv(t)
+	scheme, cfg := testutil.SetupEnvtestEnv(t)
 	c, err := client.NewWithWatch(cfg, client.Options{
 		Scheme: scheme,
 	})
@@ -80,7 +81,7 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 	t.Run("reconcile from added watch resource trigger", func(t *testing.T) {
 		t.Parallel()
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		jsonnetLibNs := &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
@@ -170,7 +171,7 @@ if esp.triggerName() == "ns" then [{
 	t.Run("reconfigure filtered contexts", func(t *testing.T) {
 		t.Parallel()
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		for i := range 500 {
 			cm := &corev1.ConfigMap{
@@ -343,7 +344,7 @@ local netpols = esp.context().netpols;
 	t.Run("template error", func(t *testing.T) {
 		t.Parallel()
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
@@ -368,7 +369,7 @@ local netpols = esp.context().netpols;
 	t.Run("duplicate context definition", func(t *testing.T) {
 		t.Parallel()
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
@@ -397,7 +398,7 @@ local netpols = esp.context().netpols;
 	t.Run("duplicate trigger definition", func(t *testing.T) {
 		t.Parallel()
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
@@ -426,7 +427,7 @@ local netpols = esp.context().netpols;
 	t.Run("service account does not exist", func(t *testing.T) {
 		t.Parallel()
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
@@ -454,7 +455,7 @@ local netpols = esp.context().netpols;
 	t.Run("invalid template return", func(t *testing.T) {
 		t.Parallel()
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
@@ -479,7 +480,7 @@ local netpols = esp.context().netpols;
 	t.Run("object with unknown api returned", func(t *testing.T) {
 		t.Parallel()
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
@@ -504,7 +505,7 @@ local netpols = esp.context().netpols;
 	t.Run("trigger api is not registered", func(t *testing.T) {
 		t.Parallel()
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
@@ -538,7 +539,7 @@ local netpols = esp.context().netpols;
 	t.Run("force ownership", func(t *testing.T) {
 		t.Parallel()
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		cmToPatch := &corev1.ConfigMap{
 			TypeMeta: metav1.TypeMeta{
@@ -608,7 +609,7 @@ local netpols = esp.context().netpols;
 	t.Run("override field manager", func(t *testing.T) {
 		t.Parallel()
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		cmToPatch := &corev1.ConfigMap{
 			TypeMeta: metav1.TypeMeta{
@@ -679,7 +680,7 @@ local netpols = esp.context().netpols;
 		t.Parallel()
 		t.Log("field validation Ignore seems to have no effect on the apply process. This test is here to document this behavior and see if the behavior changes in the future.")
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
@@ -728,7 +729,7 @@ local netpols = esp.context().netpols;
 	t.Run("interval trigger", func(t *testing.T) {
 		t.Parallel()
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		cmToPatch := &corev1.ConfigMap{
 			TypeMeta: metav1.TypeMeta{
@@ -848,7 +849,7 @@ local netpols = esp.context().netpols;
 	t.Run("object deletion", func(t *testing.T) {
 		t.Parallel()
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		for i := range 4 {
 			cm := &corev1.ConfigMap{
@@ -938,7 +939,7 @@ std.map(
 	t.Run("deletion ignores NotFound errors", func(t *testing.T) {
 		t.Parallel()
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
@@ -1179,34 +1180,6 @@ func eventSelectorFor(managedResourceName string) client.ListOption {
 			fields.OneTermEqualSelector("involvedObject.name", managedResourceName),
 		),
 	}
-}
-
-// tmpNamespace creates a new namespace, with default service account, with a generated name and registers a cleanup function to delete it.
-func tmpNamespace(t *testing.T, c client.Client) string {
-	t.Helper()
-
-	ns := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: "espejote-test-",
-			Annotations: map[string]string{
-				"test.espejote.vshn.net/name": t.Name(),
-			},
-		},
-	}
-	require.NoError(t, c.Create(t.Context(), ns))
-
-	defaultSA := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "default",
-			Namespace: ns.Name,
-		},
-	}
-	require.NoError(t, c.Create(t.Context(), defaultSA))
-
-	t.Cleanup(func() {
-		require.NoError(t, c.Delete(context.Background(), ns))
-	})
-	return ns.Name
 }
 
 // freePort returns a free port on the host.

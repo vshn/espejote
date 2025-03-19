@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"flag"
-	"os"
+	"fmt"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -15,6 +15,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
@@ -49,16 +50,19 @@ var controllerCmd = &cobra.Command{
 	Use:   "controller",
 	Short: "Starts the controller manager",
 	Long:  "Starts the controller manager",
-	Run:   runController,
+	RunE:  runController,
 }
 
-func runController(cmd *cobra.Command, _ []string) {
-	setupLog := ctrl.Log.WithName("setup")
+func newScheme() *runtime.Scheme {
 	scheme := runtime.NewScheme()
-
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(espejotev1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
+	return scheme
+}
+
+func runController(cmd *cobra.Command, _ []string) error {
+	scheme := newScheme()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
 
@@ -84,8 +88,7 @@ func runController(cmd *cobra.Command, _ []string) {
 		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
-		setupLog.Error(err, "unable to start manager")
-		os.Exit(1)
+		return fmt.Errorf("unable to start manager: %w", err)
 	}
 
 	lifetimeCtx := cmd.Context()
@@ -99,24 +102,21 @@ func runController(cmd *cobra.Command, _ []string) {
 		JsonnetLibraryNamespace: jsonnetLibraryNamespace,
 	}
 	if err := mrr.Setup(restConf, mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ManagedResource")
-		os.Exit(1)
+		return fmt.Errorf("unable to create ManagedResource controller: %w", err)
 	}
 	metrics.Registry.MustRegister(&controllers.CacheSizeCollector{ManagedResourceReconciler: mrr})
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
-		os.Exit(1)
+		return fmt.Errorf("unable to set up health check: %w", err)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
-		os.Exit(1)
+		return fmt.Errorf("unable to set up ready check: %w", err)
 	}
 
-	setupLog.Info("starting manager")
+	cmd.Println("Starting the controller manager")
 	if err := mgr.Start(lifetimeCtx); err != nil {
-		setupLog.Error(err, "problem running manager")
-		os.Exit(1)
+		return fmt.Errorf("problem running manager: %w", err)
 	}
+	return nil
 }
