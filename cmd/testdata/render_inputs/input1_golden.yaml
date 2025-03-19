@@ -1,0 +1,37 @@
+---
+- apiVersion: v1
+  data:
+    nsLabel: glug
+    sample: Hello World
+  kind: ConfigMap
+  metadata:
+    name: test
+    namespace: blub
+- apiVersion: v1
+  data:
+    nsLabel: glugindeed
+    sample: Hello World
+  kind: ConfigMap
+  metadata:
+    name: test
+    namespace: blub2
+---
+# Trigger: {"TriggerName":"namespace","WatchResource":{"apiVersion":"v1","kind":"Namespace","name":"blub"}}
+- apiVersion: v1
+  data:
+    nsLabel: glug
+    sample: Hello World
+  kind: ConfigMap
+  metadata:
+    name: test
+    namespace: blub
+---
+# Trigger: {"TriggerName":"namespace","WatchResource":{"apiVersion":"v1","kind":"Namespace","name":"blub2"}}
+- apiVersion: v1
+  data:
+    nsLabel: glugindeed
+    sample: Hello World
+  kind: ConfigMap
+  metadata:
+    name: test
+    namespace: blub2

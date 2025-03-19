@@ -1,0 +1,55 @@
+apiVersion: espejote.io/v1alpha1
+kind: ManagedResource
+metadata:
+  labels:
+    app.kubernetes.io/name: espejote
+    app.kubernetes.io/managed-by: kustomize
+  name: managedresource-sample
+  annotations:
+    description: |
+      Adds a config map called test to any namespace with the label "managedresource-sample.espejote.io/inject-cm".
+
+      If the reconcile was triggered by a trigger as defined in `triggers` it only renders the required config map.
+      If the trigger is unknown or the managed resource itself was changed all config maps are rendered and applied.
+spec:
+  triggers:
+  - name: namespace
+    watchResource:
+      apiVersion: v1
+      kind: Namespace
+      labelSelector:
+        matchExpressions:
+        - key: managedresource-sample.espejote.io/inject-cm
+          operator: Exists
+  context:
+  - name: namespaces
+    resource:
+      apiVersion: v1
+      kind: Namespace
+      labelSelector:
+        matchExpressions:
+        - key: managedresource-sample.espejote.io/inject-cm
+          operator: Exists
+  template: |
+    local esp = import "espejote.libsonnet";
+    local samplelib = import "jsonnetlibrary-sample/sample.libsonnet";
+    local namespaces = esp.context().namespaces;
+
+    local cmForNs = function(ns) {
+      apiVersion: 'v1',
+      kind: 'ConfigMap',
+      metadata: {
+        name: 'test',
+        namespace: ns.metadata.name,
+      },
+      data: {
+        sample: samplelib.Sample,
+        nsLabel: std.get(ns.metadata.labels, "managedresource-sample.espejote.io/inject-cm"),
+      },
+    };
+
+    if esp.triggerName() == "namespace" then [
+      cmForNs(esp.triggerData().resource),
+    ] else [
+      cmForNs(ns) for ns in namespaces
+    ]
