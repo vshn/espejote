@@ -294,8 +294,8 @@ Resource information is injected when rendering the template and can be retrieve
 [cols="20a,50a,15a,15a", options="header"]
 |===
 | Field | Description | Default | Validation
-| *`apiVersion`* __string__ | APIVersion of the resource that should be watched. + |  | 
-| *`group`* __string__ | Group of the resource that should be watched. + |  | 
+| *`apiVersion`* __string__ | APIVersion of the resource that should be watched. +
+The APIVersion can be in the form "group/version" or "version". + |  | 
 | *`kind`* __string__ | Kind of the resource that should be watched. + |  | 
 | *`name`* __string__ | Name of the resource that should be watched. +
 If not set, all resources of the specified Kind are watched. + |  | 

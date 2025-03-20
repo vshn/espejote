@@ -244,10 +244,9 @@ spec:
                         `local esp = import "espejote.libsonnet"; esp.triggerType() == esp.TriggerTypeWatchResource` will be true if the render was triggered by a definition in this block.
                       properties:
                         apiVersion:
-                          description: APIVersion of the resource that should be watched.
-                          type: string
-                        group:
-                          description: Group of the resource that should be watched.
+                          description: |-
+                            APIVersion of the resource that should be watched.
+                            The APIVersion can be in the form "group/version" or "version".
                           type: string
                         ignoreNames:
                           description: |-

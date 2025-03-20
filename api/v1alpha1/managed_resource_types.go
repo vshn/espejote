@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -92,7 +93,7 @@ type ManagedResourceTrigger struct {
 type ClusterResource interface {
 	fmt.Stringer
 
-	GetAPIVersion() string
+	GetVersion() string
 	GetGroup() string
 	GetKind() string
 
@@ -108,9 +109,8 @@ var _ ClusterResource = TriggerWatchResource{}
 
 type TriggerWatchResource struct {
 	// APIVersion of the resource that should be watched.
+	// The APIVersion can be in the form "group/version" or "version".
 	APIVersion string `json:"apiVersion,omitempty"`
-	// Group of the resource that should be watched.
-	Group string `json:"group,omitempty"`
 	// Kind of the resource that should be watched.
 	Kind string `json:"kind,omitempty"`
 
@@ -138,12 +138,18 @@ type TriggerWatchResource struct {
 	IgnoreNames []string `json:"ignoreNames,omitempty"`
 }
 
-func (t TriggerWatchResource) GetAPIVersion() string {
+func (t TriggerWatchResource) GetVersion() string {
+	if p := strings.SplitN(t.APIVersion, "/", 2); len(p) == 2 {
+		return p[1]
+	}
 	return t.APIVersion
 }
 
 func (t TriggerWatchResource) GetGroup() string {
-	return t.Group
+	if p := strings.SplitN(t.APIVersion, "/", 2); len(p) == 2 {
+		return p[0]
+	}
+	return ""
 }
 
 func (t TriggerWatchResource) GetKind() string {
@@ -172,8 +178,8 @@ func (t TriggerWatchResource) GetIgnoreNames() []string {
 
 func (t TriggerWatchResource) String() string {
 	gvk := metav1.GroupVersionKind{
-		Group:   t.Group,
-		Version: t.APIVersion,
+		Group:   t.GetGroup(),
+		Version: t.GetVersion(),
 		Kind:    t.Kind,
 	}
 	ns := "empty"
@@ -227,7 +233,7 @@ type ContextResource struct {
 	IgnoreNames []string `json:"ignoreNames,omitempty"`
 }
 
-func (t ContextResource) GetAPIVersion() string {
+func (t ContextResource) GetVersion() string {
 	return t.APIVersion
 }
 
