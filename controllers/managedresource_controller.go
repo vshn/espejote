@@ -132,6 +132,8 @@ func (ci *definitionCache) CacheReady() (bool, error) {
 
 // Size returns the number of objects and the size of the cache in bytes.
 // The size is an approximation and may not be accurate.
+// The size is calculated by listing all objects in the cache and recursively adding the reflect.Size of each object.
+// The assumption is that the objects are the biggest part of the cache.
 // TODO: size.Of does a bunch of reflect and some allocations, we might want to simplify/optimize this. I never benchmarked it.
 func (ci *definitionCache) Size(ctx context.Context) (int, int, error) {
 	if _, err := ci.CacheReady(); err != nil {
