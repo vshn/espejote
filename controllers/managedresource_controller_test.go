@@ -3,14 +3,24 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-logr/logr/testr"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/common/expfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/multierr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,6 +29,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
@@ -39,10 +50,13 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 
 	ctx := log.IntoContext(t.Context(), testr.New(t))
 
+	metricsPort, err := freePort()
+	t.Log("metrics port:", metricsPort)
+	require.NoError(t, err)
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricserver.Options{
-			BindAddress: ":0",
+			BindAddress: ":" + strconv.Itoa(metricsPort),
 		},
 	})
 	require.NoError(t, err)
@@ -54,6 +68,7 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		Recorder:                mgr.GetEventRecorderFor("managed-resource-controller"),
 	}
 	require.NoError(t, subject.Setup(cfg, mgr))
+	metrics.Registry.MustRegister(&CacheSizeCollector{ManagedResourceReconciler: subject})
 
 	mgrCtx, mgrCancel := context.WithCancel(ctx)
 	t.Cleanup(mgrCancel)
@@ -898,6 +913,204 @@ local esp = import 'espejote.libsonnet';
 			assert.Equal(t, "Ready", mr.Status.Status)
 		}, 5*time.Second, 100*time.Millisecond)
 	})
+
+	t.Run("custom metrics", func(t *testing.T) {
+		t.Parallel()
+
+		testns := tmpNamespace(t, c)
+
+		for i := range 100 {
+			cm := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test" + strconv.Itoa(i),
+					Namespace: testns,
+				},
+			}
+			if i%2 == 0 {
+				cm.Labels = map[string]string{
+					"managed": "true",
+				}
+			}
+			require.NoError(t, c.Create(ctx, cm))
+		}
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Triggers: []espejotev1alpha1.ManagedResourceTrigger{{
+					Name: "matching-cms",
+					WatchResource: espejotev1alpha1.TriggerWatchResource{
+						Kind:       "ConfigMap",
+						APIVersion: "v1",
+						MatchNames: []string{"test1", "test2"},
+					},
+				}},
+				Context: []espejotev1alpha1.ManagedResourceContext{
+					{
+						Name: "cms",
+						Resource: espejotev1alpha1.ContextResource{
+							APIVersion: "v1",
+							Kind:       "ConfigMap",
+							LabelSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{"managed": "true"},
+							},
+						},
+					}, {
+						Name: "all-cms",
+						Resource: espejotev1alpha1.ContextResource{
+							APIVersion: "v1",
+							Kind:       "ConfigMap",
+						},
+					},
+				},
+				Template: `[]`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		inNsGatherer := filteringGatherer{
+			gatherer: urlGatherer(fmt.Sprintf("http://localhost:%d/metrics", metricsPort)),
+			filter: func(mf *dto.MetricFamily, m *dto.Metric) bool {
+				if mf.GetName() == "espejote_reconciles_total" {
+					// We know that the trigger triggers two reconciles, one for each object.
+					return metricHasLabelPair("namespace", testns)(m) && metricHasLabelPair("trigger", "matching-cms")(m)
+				}
+				return metricHasLabelPair("namespace", testns)(m)
+			},
+		}
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			assert.NoError(t, testutil.GatherAndCompare(inNsGatherer, strings.NewReader(`
+# HELP espejote_cached_objects Number of objects in the cache.
+# TYPE espejote_cached_objects gauge
+espejote_cached_objects{managedresource="test",name="all-cms",namespace="`+testns+`",type="context"} 100
+espejote_cached_objects{managedresource="test",name="cms",namespace="`+testns+`",type="context"} 50
+espejote_cached_objects{managedresource="test",name="matching-cms",namespace="`+testns+`",type="trigger"} 2
+# HELP espejote_cache_size_bytes Size of the cache in bytes. Note that this is an approximation. The metric should not be compared across different espejote versions.
+# TYPE espejote_cache_size_bytes gauge
+espejote_cache_size_bytes{managedresource="test",name="all-cms",namespace="`+testns+`",type="context"} 106176
+espejote_cache_size_bytes{managedresource="test",name="cms",namespace="`+testns+`",type="context"} 75731
+espejote_cache_size_bytes{managedresource="test",name="matching-cms",namespace="`+testns+`",type="trigger"} 2304
+# HELP espejote_reconciles_total Total number of reconciles by trigger.
+# TYPE espejote_reconciles_total counter
+espejote_reconciles_total{managedresource="test",namespace="`+testns+`",trigger="matching-cms"} 2
+`), "espejote_cached_objects", "espejote_cache_size_bytes", "espejote_reconciles_total"), "espejote_cache_size_bytes may needs updating when switching between client or apiserver versions")
+		}, 5*time.Second, 100*time.Millisecond)
+
+		t.Log("error metrics")
+		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+		mr.Spec.Template = `glug`
+		require.NoError(t, c.Update(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			metrics, err := inNsGatherer.Gather()
+			require.NoError(t, err)
+			filtered := filterMetrics(metrics, func(mf *dto.MetricFamily, m *dto.Metric) bool {
+				return mf.GetName() == "espejote_reconcile_errors_total" &&
+					metricHasLabelPair("trigger", "")(m) &&
+					metricHasLabelPair("error_kind", string(TemplateError))(m)
+			})
+			assert.Len(t, filtered, 1, "expected one error metric with the error kind %q", TemplateError)
+		}, 5*time.Second, 100*time.Millisecond)
+
+		lintproblem, err := testutil.GatherAndLint(inNsGatherer)
+		require.NoError(t, err)
+		assert.Empty(t, lintproblem)
+	})
+}
+
+// metricHasLabelPair returns a function that checks if a metric has a label pair with the given name and value.
+func metricHasLabelPair(name, value string) func(*dto.Metric) bool {
+	return func(m *dto.Metric) bool {
+		return slices.ContainsFunc(m.Label, func(lp *dto.LabelPair) bool {
+			return lp.GetName() == name && lp.GetValue() == value
+		})
+	}
+}
+
+// filterMetrics filters MetricFamilies based on a filter function.
+// MetricFamilies are dropped if all their metrics are filtered.
+func filterMetrics(mfs []*dto.MetricFamily, filter func(*dto.MetricFamily, *dto.Metric) (keep bool)) []*dto.MetricFamily {
+	for _, mf := range mfs {
+		mf.Metric = slices.DeleteFunc(mf.Metric, func(m *dto.Metric) bool { return !filter(mf, m) })
+	}
+
+	return slices.DeleteFunc(mfs, func(mf *dto.MetricFamily) bool { return len(mf.Metric) < 1 })
+}
+
+// filteringGatherer is a prometheus.Gatherer that filters metrics based on a filter function.
+// MetricFamilies are dropped if all their metrics are filtered.
+type filteringGatherer struct {
+	gatherer prometheus.Gatherer
+	filter   func(*dto.MetricFamily, *dto.Metric) (keep bool)
+}
+
+func (f filteringGatherer) Gather() ([]*dto.MetricFamily, error) {
+	mfs, err := f.gatherer.Gather()
+	return filterMetrics(mfs, f.filter), err
+}
+
+func urlGatherer(url string) prometheus.Gatherer {
+	return prometheus.GathererFunc(func() ([]*dto.MetricFamily, error) {
+		resp, err := http.Get(url)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			b, err := io.ReadAll(resp.Body)
+			return nil, multierr.Combine(
+				fmt.Errorf("unexpected status code %d, body: %q", resp.StatusCode, string(b)),
+				err,
+			)
+		}
+
+		dec := expfmt.NewDecoder(resp.Body, expfmt.NewFormat(expfmt.TypeTextPlain))
+
+		metrics := make([]*dto.MetricFamily, 0)
+		errs := make([]error, 0)
+		for {
+			mf := &dto.MetricFamily{}
+			err := dec.Decode(mf)
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			metrics = append(metrics, mf)
+		}
+
+		return metrics, multierr.Combine(errs...)
+	})
+}
+
+func gatherMetrics(t *testing.T, url string) []*dto.MetricFamily {
+	t.Helper()
+
+	resp, err := http.Get(url)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	dec := expfmt.NewDecoder(resp.Body, expfmt.NewFormat(expfmt.TypeTextPlain))
+
+	metrics := make([]*dto.MetricFamily, 0)
+	for {
+		mf := &dto.MetricFamily{}
+		err := dec.Decode(mf)
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		metrics = append(metrics, mf)
+	}
+
+	return metrics
 }
 
 func eventSelectorFor(managedResourceName string) client.ListOption {
@@ -935,4 +1148,18 @@ func tmpNamespace(t *testing.T, c client.Client) string {
 		require.NoError(t, c.Delete(context.Background(), ns))
 	})
 	return ns.Name
+}
+
+// freePort returns a free port on the host.
+func freePort() (int, error) {
+	a, err := net.ResolveTCPAddr("tcp", ":0")
+	if err != nil {
+		return 0, err
+	}
+	l, err := net.ListenTCP("tcp", a)
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port, nil
 }

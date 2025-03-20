@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/DmitriyVTitov/size"
 	"github.com/google/go-jsonnet"
 	"go.uber.org/multierr"
 	authv1 "k8s.io/api/authentication/v1"
@@ -115,6 +116,8 @@ func (ci *instanceCache) AllCachesReady() (bool, error) {
 }
 
 type definitionCache struct {
+	target *unstructured.Unstructured
+
 	cache cache.Cache
 
 	cacheReadyMux sync.Mutex
@@ -125,6 +128,27 @@ func (ci *definitionCache) CacheReady() (bool, error) {
 	ci.cacheReadyMux.Lock()
 	defer ci.cacheReadyMux.Unlock()
 	return ci.cacheReady == nil, ignoreErrCacheNotReady(ci.cacheReady)
+}
+
+// Size returns the number of objects and the size of the cache in bytes.
+// The size is an approximation and may not be accurate.
+// The size is calculated by listing all objects in the cache and recursively adding the reflect.Size of each object.
+// The assumption is that the objects are the biggest part of the cache.
+// TODO: size.Of does a bunch of reflect and some allocations, we might want to simplify/optimize this. I never benchmarked it.
+func (ci *definitionCache) Size(ctx context.Context) (int, int, error) {
+	if _, err := ci.CacheReady(); err != nil {
+		return 0, 0, err
+	}
+
+	list, err := ci.target.DeepCopy().ToList()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to build list from target object: %w", err)
+	}
+	if err := ci.cache.List(ctx, list); err != nil {
+		return 0, 0, fmt.Errorf("failed to list objects: %w", err)
+	}
+
+	return len(list.Items), size.Of(list), nil
 }
 
 func ignoreErrCacheNotReady(err error) error {
@@ -168,8 +192,10 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 	// Since we are not using the default builder we need to add the request to the context ourselves
 	ctx = log.IntoContext(ctx, log.FromContext(ctx).WithValues("request", req))
 
+	reconciles.WithLabelValues(req.NamespacedName.Name, req.NamespacedName.Namespace, req.TriggerInfo.TriggerName).Inc()
+
 	res, recErr := r.reconcile(ctx, req)
-	return res, multierr.Combine(recErr, r.recordReconcileErr(ctx, req.NamespacedName, recErr))
+	return res, multierr.Combine(recErr, r.recordReconcileErr(ctx, req, recErr))
 }
 
 func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) (ctrl.Result, error) {
@@ -292,9 +318,9 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 
 // recordReconcileErr records the given error as an event on the ManagedResource and updates the status accordingly.
 // If the error is nil, the status is updated to "Ready".
-func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, mr types.NamespacedName, recErr error) error {
+func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, req Request, recErr error) error {
 	var managedResource espejotev1alpha1.ManagedResource
-	if err := r.Get(ctx, mr, &managedResource); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, &managedResource); err != nil {
 		return client.IgnoreNotFound(err)
 	}
 
@@ -314,6 +340,8 @@ func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, mr t
 	}
 
 	r.Recorder.Eventf(&managedResource, "Warning", errType, "Reconcile error: %s", recErr.Error())
+
+	reconcileErrors.WithLabelValues(req.NamespacedName.Name, req.NamespacedName.Namespace, req.TriggerInfo.TriggerName, errType).Inc()
 
 	if managedResource.Status.Status == errType {
 		return nil
@@ -427,7 +455,7 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 
 		ci.triggerCaches[trigger.Name] = dc
 
-		if err := r.controller.Watch(source.TypedKind(dc.cache, watchTarget, handler.TypedEnqueueRequestsFromMapFunc(staticMapFunc(client.ObjectKeyFromObject(&mr), trigger.Name)))); err != nil {
+		if err := r.controller.Watch(source.TypedKind(dc.cache, client.Object(watchTarget), handler.TypedEnqueueRequestsFromMapFunc(staticMapFunc(client.ObjectKeyFromObject(&mr), trigger.Name)))); err != nil {
 			cancel()
 			return nil, err
 		}
@@ -663,7 +691,7 @@ func (r *ManagedResourceReconciler) restConfigForManagedResource(ctx context.Con
 
 // newCacheForResourceAndRESTClient creates a new cache for the given ClusterResource and REST client.
 // The cache starts syncing in the background and is ready when CacheReady() is true on the returned cache.
-func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context.Context, cr espejotev1alpha1.ClusterResource, rc *rest.Config, defaultNamespace string) (client.Object, *definitionCache, error) {
+func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context.Context, cr espejotev1alpha1.ClusterResource, rc *rest.Config, defaultNamespace string) (*unstructured.Unstructured, *definitionCache, error) {
 	watchTarget := &unstructured.Unstructured{}
 	watchTarget.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   cr.GetGroup(),
@@ -708,6 +736,9 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 		ReaderFailOnMissingInformer: true,
 		DefaultFieldSelector:        fields.AndSelectors(sel...),
 		DefaultLabelSelector:        lblSel,
+		// We don't want to deep copy the objects, as we don't modify them
+		// This is mostly to make metric collection more efficient
+		DefaultUnsafeDisableDeepCopy: ptr.To(true),
 
 		NewInformer: filterInf,
 	})
@@ -716,6 +747,7 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 	}
 
 	dc := &definitionCache{
+		target:     watchTarget,
 		cache:      c,
 		cacheReady: ErrCacheNotReady,
 	}
