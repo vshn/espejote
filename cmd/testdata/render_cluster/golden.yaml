@@ -1,0 +1,77 @@
+---
+cmNames:
+- test-1
+- test-5
+- test-7
+- test-9
+samplelib: test
+trigger: null
+triggerInfo: null
+---
+# Trigger: {"TriggerName":"configmap","WatchResource":{"apiVersion":"v1","kind":"ConfigMap","name":"test-1","namespace":"NAMESPACE"}}
+cmNames:
+- test-1
+- test-5
+- test-7
+- test-9
+samplelib: test
+trigger: configmap
+triggerInfo:
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    labels:
+      odd: "true"
+    name: test-1
+    namespace: NAMESPACE
+---
+# Trigger: {"TriggerName":"configmap","WatchResource":{"apiVersion":"v1","kind":"ConfigMap","name":"test-5","namespace":"NAMESPACE"}}
+cmNames:
+- test-1
+- test-5
+- test-7
+- test-9
+samplelib: test
+trigger: configmap
+triggerInfo:
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    labels:
+      odd: "true"
+    name: test-5
+    namespace: NAMESPACE
+---
+# Trigger: {"TriggerName":"configmap","WatchResource":{"apiVersion":"v1","kind":"ConfigMap","name":"test-7","namespace":"NAMESPACE"}}
+cmNames:
+- test-1
+- test-5
+- test-7
+- test-9
+samplelib: test
+trigger: configmap
+triggerInfo:
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    labels:
+      odd: "true"
+    name: test-7
+    namespace: NAMESPACE
+---
+# Trigger: {"TriggerName":"configmap","WatchResource":{"apiVersion":"v1","kind":"ConfigMap","name":"test-9","namespace":"NAMESPACE"}}
+cmNames:
+- test-1
+- test-5
+- test-7
+- test-9
+samplelib: test
+trigger: configmap
+triggerInfo:
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    labels:
+      odd: "true"
+    name: test-9
+    namespace: NAMESPACE

@@ -15,13 +15,25 @@ import (
 )
 
 //go:embed lib/espejote.libsonnet
-var espejoteLibsonnet string
+var EspejoteLibsonnet string
 
 // MultiImporter imports from multiple importers.
 // It tries each importer in order until one succeeds.
 // If all importers fail, it returns an error combining all errors.
+// Lookup results are cached for the lifetime of the importer and can be accessed through the Cache field.
+// The cache is not thread-safe. Same as the upstream FileImporter.
 type MultiImporter struct {
 	Importers []MultiImporterConfig
+
+	Cache map[string]MultiImporterCacheEntry
+}
+
+// MultiImporterCacheEntry is a cache entry for MultiImporter.
+// It holds the result of the last import.
+type MultiImporterCacheEntry struct {
+	Contents jsonnet.Contents
+	FoundAt  string
+	Err      error
 }
 
 type MultiImporterConfig struct {
@@ -31,6 +43,13 @@ type MultiImporterConfig struct {
 
 // Import fetches from the first importer that succeeds.
 func (im *MultiImporter) Import(importedFrom, importedPath string) (contents jsonnet.Contents, foundAt string, err error) {
+	if im.Cache == nil {
+		im.Cache = make(map[string]MultiImporterCacheEntry)
+	}
+	if entry, ok := im.Cache[importedPath]; ok {
+		return entry.Contents, entry.FoundAt, entry.Err
+	}
+
 	var errs []error
 	for _, i := range im.Importers {
 		path := importedPath
@@ -45,11 +64,23 @@ func (im *MultiImporter) Import(importedFrom, importedPath string) (contents jso
 			foundAt = i.TrimPathPrefix + foundAt
 		}
 		if err == nil {
+			im.Cache[importedPath] = MultiImporterCacheEntry{
+				Contents: contents,
+				FoundAt:  foundAt,
+				Err:      nil,
+			}
 			return contents, foundAt, nil
 		}
 		errs = append(errs, err)
 	}
-	return jsonnet.Contents{}, "", fmt.Errorf("import not available %q: %w", importedPath, multierr.Combine(errs...))
+
+	err = fmt.Errorf("import not available %q: %w", importedPath, multierr.Combine(errs...))
+	im.Cache[importedPath] = MultiImporterCacheEntry{
+		Contents: jsonnet.Contents{},
+		FoundAt:  "",
+		Err:      err,
+	}
+	return jsonnet.Contents{}, "", err
 }
 
 // ManifestImporter imports data from espejotev1alpha1.JsonnetLibraries.
@@ -78,4 +109,33 @@ func (importer *ManifestImporter) Import(_, importedPath string) (contents jsonn
 		return jsonnet.MakeContents(content), importedPath, nil
 	}
 	return jsonnet.Contents{}, "", fmt.Errorf("import %q not available: key %q not found in manifest %q", importedPath, key, manifestName)
+}
+
+// FromClientImporter returns an importer that fetches libraries from the cluster using the given client.
+// "espejote.libsonnet" is statically embedded.
+func FromClientImporter(c client.Client, localNamespace, libNamespace string) *MultiImporter {
+	return &MultiImporter{
+		Importers: []MultiImporterConfig{
+			{
+				Importer: &jsonnet.MemoryImporter{
+					Data: map[string]jsonnet.Contents{
+						"espejote.libsonnet": jsonnet.MakeContents(EspejoteLibsonnet),
+					},
+				},
+			},
+			{
+				TrimPathPrefix: "lib/",
+				Importer: &ManifestImporter{
+					Client:    c,
+					Namespace: libNamespace,
+				},
+			},
+			{
+				Importer: &ManifestImporter{
+					Client:    c,
+					Namespace: localNamespace,
+				},
+			},
+		},
+	}
 }

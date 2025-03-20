@@ -1,0 +1,71 @@
+triggers:
+- {}
+- name: namespace
+  watchResource:
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      creationTimestamp: "2025-03-17T12:41:04Z"
+      labels:
+        kubernetes.io/metadata.name: blub
+        managedresource-sample.espejote.io/inject-cm: glug
+      name: blub
+      resourceVersion: "1268206"
+      uid: 62bf8581-6e7b-49df-b1bb-3b2ad46405e9
+    spec:
+      finalizers:
+      - kubernetes
+    status:
+      phase: Active
+- name: namespace
+  watchResource:
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      creationTimestamp: "2025-03-17T20:50:58Z"
+      labels:
+        kubernetes.io/metadata.name: blub2
+        managedresource-sample.espejote.io/inject-cm: glugindeed
+      name: blub2
+      resourceVersion: "1268191"
+      uid: b1d4b12a-e7d8-4334-ba68-b598e88c4dfb
+    spec:
+      finalizers:
+      - kubernetes
+    status:
+      phase: Active
+context:
+- name: namespaces
+  resources:
+  - apiVersion: v1
+    kind: Namespace
+    metadata:
+      creationTimestamp: "2025-03-17T12:41:04Z"
+      labels:
+        kubernetes.io/metadata.name: blub
+        managedresource-sample.espejote.io/inject-cm: glug
+      name: blub
+      resourceVersion: "1268206"
+      uid: 62bf8581-6e7b-49df-b1bb-3b2ad46405e9
+    spec:
+      finalizers:
+      - kubernetes
+    status:
+      phase: Active
+  - apiVersion: v1
+    kind: Namespace
+    metadata:
+      creationTimestamp: "2025-03-17T20:50:58Z"
+      labels:
+        kubernetes.io/metadata.name: blub2
+        managedresource-sample.espejote.io/inject-cm: glugindeed
+      name: blub2
+      resourceVersion: "1268191"
+      uid: b1d4b12a-e7d8-4334-ba68-b598e88c4dfb
+    spec:
+      finalizers:
+      - kubernetes
+    status:
+      phase: Active
+libraries:
+  jsonnetlibrary-sample/sample.libsonnet: "{Sample: 'Hello World'}"

@@ -1,6 +1,8 @@
 package controllers_test
 
 import (
+	"maps"
+	"slices"
 	"testing"
 
 	"github.com/google/go-jsonnet"
@@ -12,8 +14,7 @@ import (
 func Test_MultiImporter_Import_WithTrimPrefix(t *testing.T) {
 	t.Parallel()
 
-	jvm := jsonnet.MakeVM()
-	jvm.Importer(&controllers.MultiImporter{
+	subject := &controllers.MultiImporter{
 		Importers: []controllers.MultiImporterConfig{
 			{
 				Importer: &jsonnet.MemoryImporter{
@@ -31,9 +32,14 @@ func Test_MultiImporter_Import_WithTrimPrefix(t *testing.T) {
 				},
 			},
 		},
-	})
+	}
+	jvm := jsonnet.MakeVM()
+	jvm.Importer(subject)
 
 	ret, err := jvm.EvaluateAnonymousSnippet("test.jsonnet", `[import "test.jsonnet", import "test/test.jsonnet"]`)
 	require.NoError(t, err, "Content should be unique for each returned foundAt path, MultiImporter should re-add the TrimPathPrefix to the foundAt path or it will conflict with other imports")
 	require.JSONEq(t, `["test", "test/test"]`, ret)
+
+	slices.Collect(maps.Keys(subject.Cache))
+	require.ElementsMatch(t, []string{"test.jsonnet", "test/test.jsonnet"}, slices.Collect(maps.Keys(subject.Cache)))
 }

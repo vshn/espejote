@@ -42,6 +42,7 @@ spec:
           type: RuntimeDefault
       containers:
       - args:
+        - controller
         - --leader-elect
         env:
         - name: POD_NAMESPACE
