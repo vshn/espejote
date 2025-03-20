@@ -373,7 +373,7 @@ func objectSelectorForClusterResource(c client.Client, cr espejotev1alpha1.Clust
 	watchTarget := &unstructured.Unstructured{}
 	watchTarget.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   cr.GetGroup(),
-		Version: cr.GetAPIVersion(),
+		Version: cr.GetVersion(),
 		Kind:    cr.GetKind(),
 	})
 

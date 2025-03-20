@@ -15,7 +15,7 @@ import (
 
 	"github.com/go-logr/logr/testr"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/testutil"
+	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
 	"github.com/stretchr/testify/assert"
@@ -286,7 +286,7 @@ local cms = esp.context()["cms"];
 	t.Run("resource outside core group", func(t *testing.T) {
 		t.Parallel()
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		for i := range 3 {
 			cm := &networkingv1.NetworkPolicy{
@@ -977,7 +977,7 @@ local esp = import 'espejote.libsonnet';
 	t.Run("custom metrics", func(t *testing.T) {
 		t.Parallel()
 
-		testns := tmpNamespace(t, c)
+		testns := testutil.TmpNamespace(t, c)
 
 		for i := range 100 {
 			cm := &corev1.ConfigMap{
@@ -1043,7 +1043,7 @@ local esp = import 'espejote.libsonnet';
 		}
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
-			assert.NoError(t, testutil.GatherAndCompare(inNsGatherer, strings.NewReader(`
+			assert.NoError(t, promtestutil.GatherAndCompare(inNsGatherer, strings.NewReader(`
 # HELP espejote_cached_objects Number of objects in the cache.
 # TYPE espejote_cached_objects gauge
 espejote_cached_objects{managedresource="test",name="all-cms",namespace="`+testns+`",type="context"} 100
@@ -1076,7 +1076,7 @@ espejote_reconciles_total{managedresource="test",namespace="`+testns+`",trigger=
 			assert.Len(t, filtered, 1, "expected one error metric with the error kind %q", TemplateError)
 		}, 5*time.Second, 100*time.Millisecond)
 
-		lintproblem, err := testutil.GatherAndLint(inNsGatherer)
+		lintproblem, err := promtestutil.GatherAndLint(inNsGatherer)
 		require.NoError(t, err)
 		assert.Empty(t, lintproblem)
 	})

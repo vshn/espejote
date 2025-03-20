@@ -163,7 +163,7 @@ func collectInput(ctx context.Context, c client.Client, mr espejotev1alpha1.Mana
 		t := &unstructured.Unstructured{}
 		t.SetGroupVersionKind(schema.GroupVersionKind{
 			Group:   trigger.WatchResource.GetGroup(),
-			Version: trigger.WatchResource.GetAPIVersion(),
+			Version: trigger.WatchResource.GetVersion(),
 			Kind:    trigger.WatchResource.GetKind(),
 		})
 		tl, err := t.ToList()
@@ -200,7 +200,7 @@ func collectInput(ctx context.Context, c client.Client, mr espejotev1alpha1.Mana
 		t := &unstructured.Unstructured{}
 		t.SetGroupVersionKind(schema.GroupVersionKind{
 			Group:   context.Resource.GetGroup(),
-			Version: context.Resource.GetAPIVersion(),
+			Version: context.Resource.GetVersion(),
 			Kind:    context.Resource.GetKind(),
 		})
 		tl, err := t.ToList()
