@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/multierr"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -279,6 +280,64 @@ local cms = esp.context()["cms"];
 			require.NoError(t, json.Unmarshal([]byte(cm.Data["cms"]), &cms))
 			return len(cms) < 1
 		}, 2*time.Second, 100*time.Millisecond, "should stop reconciling after deletion")
+	})
+
+	t.Run("resource outside core group", func(t *testing.T) {
+		t.Parallel()
+
+		testns := tmpNamespace(t, c)
+
+		for i := range 3 {
+			cm := &networkingv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test" + strconv.Itoa(i),
+					Namespace: testns,
+				},
+			}
+			require.NoError(t, c.Create(ctx, cm))
+		}
+
+		res := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Context: []espejotev1alpha1.ManagedResourceContext{{
+					Name: "netpols",
+					Resource: espejotev1alpha1.ContextResource{
+						APIVersion:  "networking.k8s.io/v1",
+						Kind:        "NetworkPolicy",
+						IgnoreNames: []string{"collected"},
+					},
+				}},
+				Template: `
+local esp = import "espejote.libsonnet";
+local netpols = esp.context().netpols;
+
+[{
+	apiVersion: 'networking.k8s.io/v1',
+	kind: 'NetworkPolicy',
+	metadata: {
+		name: 'collected',
+		annotations: {
+			netpols: std.manifestJsonMinified(std.map(function(np) np.metadata.name, netpols)),
+		},
+	},
+}]
+				`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, res))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var np networkingv1.NetworkPolicy
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "collected"}, &np))
+
+			var cms []string
+			require.NoError(t, json.Unmarshal([]byte(np.GetAnnotations()["netpols"]), &cms))
+			assert.ElementsMatch(t, []string{"test0", "test1", "test2"}, cms)
+		}, 5*time.Second, 100*time.Millisecond)
 	})
 
 	t.Run("template error", func(t *testing.T) {

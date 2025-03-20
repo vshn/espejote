@@ -695,7 +695,7 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 	watchTarget := &unstructured.Unstructured{}
 	watchTarget.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   cr.GetGroup(),
-		Version: cr.GetAPIVersion(),
+		Version: cr.GetVersion(),
 		Kind:    cr.GetKind(),
 	})
 
