@@ -47,5 +47,5 @@ spec:
       trigger: esp.triggerName(),
       triggerInfo: if esp.triggerData() != null then stripMeta(esp.triggerData().resource),
       cmNames: cmNames,
-      samplelib: samplelib.test,
+      samplelib: samplelib,
     }

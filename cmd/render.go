@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/google/go-jsonnet"
@@ -32,6 +33,8 @@ import (
 )
 
 var yellow = color.New(color.FgYellow, color.Bold).SprintFunc()
+var bgBlue = color.New(color.BgBlue, color.Bold).SprintFunc()
+var bold = color.New(color.Bold).SprintFunc()
 
 func init() {
 	rootCmd.AddCommand(NewRenderCommand(ctrl.GetConfig))
@@ -44,9 +47,20 @@ func NewRenderCommand(
 		restConfigFunc: restConfigFunc,
 	}
 	c := &cobra.Command{
-		Use:       "render path",
-		Short:     yellow("ALPHA") + " Renders a ManagedResource.",
-		Long:      yellow("ALPHA") + " Renders the given ManagedResource and prints the result to stdout.",
+		Use:     "render path",
+		Example: "espejote render path/to/managedresource.yaml --input path/to/input.yaml",
+		Short:   yellow("ALPHA") + " Renders a ManagedResource.",
+		Long: strings.Join([]string{
+			yellow("ALPHA"), "Renders the given ManagedResource and prints the result to stdout.",
+			"\n\nThe command supports two modes: rendering from the cluster and rendering from input files.",
+			"\nInput files can be passed with the --input flag. If not set, the command will use the cluster from the current kubeconfig to load triggers, context, and libraries.",
+			"\nInput files must be in YAML format and contain the following fields:",
+			"\n  - triggers: A list of triggers to render for. Should always include an empty trigger to render a general reconciliation. The command will render the ManagedResource for each trigger defined in the input files.",
+			"\n  - context: A list of contexts to render for.",
+			"\n  - libraries: A map of used library names to their code.",
+			"\n\n Inputs are currently", bold("not validated"), "and must be correct.",
+			"Inputs can be generated from the cluster with the", bgBlue(" collect-input "), "command.",
+		}, " "),
 		ValidArgs: []string{"path"},
 		Args:      cobra.ExactArgs(1),
 		RunE:      cc.runRender,
@@ -73,8 +87,8 @@ type RenderInputTrigger struct {
 }
 
 type RenderInputContext struct {
-	Name      string                       `json:"name"`
-	Resources []*unstructured.Unstructured `json:"resources"`
+	Name      string                      `json:"name"`
+	Resources []unstructured.Unstructured `json:"resources"`
 }
 
 func (rcc *renderCommandConfig) runRender(cmd *cobra.Command, args []string) error {
@@ -97,12 +111,12 @@ func (rcc *renderCommandConfig) runRender(cmd *cobra.Command, args []string) err
 	}
 
 	if len(renderInputs) > 0 {
-		return rcc.renderFromInputs(ctx, cmd.OutOrStdout(), mr, renderInputs)
+		return rcc.renderFromInputFiles(ctx, cmd.OutOrStdout(), mr, renderInputs)
 	}
 	return rcc.renderFromCluster(ctx, cmd.OutOrStdout(), mr, renderNamespace)
 }
 
-func (rcc *renderCommandConfig) renderFromInputs(ctx context.Context, out io.Writer, mr espejotev1alpha1.ManagedResource, renderInputs []string) error {
+func (rcc *renderCommandConfig) renderFromInputFiles(ctx context.Context, out io.Writer, mr espejotev1alpha1.ManagedResource, renderInputs []string) error {
 	inputs := make([]RenderInput, len(renderInputs))
 	inputErrs := make([]error, len(renderInputs))
 	for _, input := range renderInputs {
@@ -123,55 +137,69 @@ func (rcc *renderCommandConfig) renderFromInputs(ctx context.Context, out io.Wri
 	}
 
 	for _, input := range inputs {
-		contexts := make(map[string][]*unstructured.Unstructured)
-		for _, context := range input.Context {
-			if _, ok := contexts[context.Name]; ok {
-				return fmt.Errorf("duplicate context name: %s", context.Name)
-			}
-			contexts[context.Name] = context.Resources
+		if err := renderFromInput(ctx, out, mr, input, nil); err != nil {
+			return fmt.Errorf("failed to render from input: %w", err)
 		}
+	}
 
+	return nil
+}
+
+// renderFromInput renders the given ManagedResource using the given input.
+// The importer is used to load libraries.
+// If the importer is nil, the RenderInput.Libraries are used as libraries.
+func renderFromInput(ctx context.Context, out io.Writer, mr espejotev1alpha1.ManagedResource, input RenderInput, importer jsonnet.Importer) error {
+	contexts := make(map[string][]unstructured.Unstructured)
+	for _, context := range input.Context {
+		if _, ok := contexts[context.Name]; ok {
+			return fmt.Errorf("duplicate context name: %s", context.Name)
+		}
+		contexts[context.Name] = context.Resources
+	}
+
+	if importer == nil {
 		imports := make(map[string]jsonnet.Contents)
 		for name, code := range input.Libraries {
 			imports[name] = jsonnet.MakeContents(code)
 		}
 		imports["espejote.libsonnet"] = jsonnet.MakeContents(controllers.EspejoteLibsonnet)
+		importer = &jsonnet.MemoryImporter{Data: imports}
+	}
 
-		for _, trigger := range input.Triggers {
-			triggerClientGetter := func(triggerName string) (client.Reader, error) { return nil, fmt.Errorf("not implemented") }
-			ti := controllers.TriggerInfo{TriggerName: trigger.Name}
+	for _, trigger := range input.Triggers {
+		triggerClientGetter := func(triggerName string) (client.Reader, error) { return nil, fmt.Errorf("not implemented") }
+		ti := controllers.TriggerInfo{TriggerName: trigger.Name}
 
-			if trigger.WatchResource != nil {
-				triggerClientGetter = func(triggerName string) (client.Reader, error) {
-					return &staticUnstructuredReader{
-						objs: []*unstructured.Unstructured{trigger.WatchResource},
-					}, nil
+		if trigger.WatchResource != nil {
+			triggerClientGetter = func(triggerName string) (client.Reader, error) {
+				return &staticUnstructuredReader{
+					objs: []unstructured.Unstructured{*trigger.WatchResource},
+				}, nil
+			}
+			ti.WatchResource = watchResourceFromObj(trigger.WatchResource)
+		}
+
+		renderer := &controllers.Renderer{
+			Importer:            importer,
+			TriggerClientGetter: triggerClientGetter,
+			ContextClientGetter: func(contextName string) (client.Reader, error) {
+				resources, ok := contexts[contextName]
+				if !ok {
+					return nil, fmt.Errorf("context %q not found", contextName)
 				}
-				ti.WatchResource = watchResourceFromObj(trigger.WatchResource)
-			}
+				return &staticUnstructuredReader{
+					objs: resources,
+				}, nil
+			},
+		}
 
-			renderer := &controllers.Renderer{
-				Importer:            &jsonnet.MemoryImporter{Data: imports},
-				TriggerClientGetter: triggerClientGetter,
-				ContextClientGetter: func(contextName string) (client.Reader, error) {
-					resources, ok := contexts[contextName]
-					if !ok {
-						return nil, fmt.Errorf("context %q not found", contextName)
-					}
-					return &staticUnstructuredReader{
-						objs: resources,
-					}, nil
-				},
-			}
+		rendered, err := renderer.Render(ctx, mr, ti)
+		if err != nil {
+			return fmt.Errorf("failed to render: %w", err)
+		}
 
-			rendered, err := renderer.Render(ctx, mr, ti)
-			if err != nil {
-				return fmt.Errorf("failed to render: %w", err)
-			}
-
-			if err := printRendered(out, rendered, ti); err != nil {
-				return fmt.Errorf("failed to print rendered output: %w", err)
-			}
+		if err := printRendered(out, rendered, ti); err != nil {
+			return fmt.Errorf("failed to print rendered output: %w", err)
 		}
 	}
 
@@ -179,7 +207,7 @@ func (rcc *renderCommandConfig) renderFromInputs(ctx context.Context, out io.Wri
 }
 
 type staticUnstructuredReader struct {
-	objs []*unstructured.Unstructured
+	objs []unstructured.Unstructured
 }
 
 func (r *staticUnstructuredReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
@@ -192,14 +220,14 @@ func (r *staticUnstructuredReader) Get(ctx context.Context, key client.ObjectKey
 		return fmt.Errorf("expected *unstructured.Unstructured, got %T", obj)
 	}
 
-	*uo = *r.objs[0]
+	*uo = r.objs[0]
 	return nil
 }
 
 func (r *staticUnstructuredReader) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 	l := make([]runtime.Object, len(r.objs))
 	for i := range r.objs {
-		l[i] = r.objs[i]
+		l[i] = &r.objs[i]
 	}
 
 	if err := meta.SetList(list, l); err != nil {
@@ -231,95 +259,15 @@ func (rcc *renderCommandConfig) renderFromCluster(ctx context.Context, out io.Wr
 		return fmt.Errorf("failed to create client: %w", err)
 	}
 
-	triggerCfgs := map[string]espejotev1alpha1.ManagedResourceTrigger{}
-	for _, trigger := range mr.Spec.Triggers {
-		if _, ok := triggerCfgs[trigger.Name]; ok {
-			return fmt.Errorf("duplicate trigger name: %s", trigger.Name)
-		}
-		triggerCfgs[trigger.Name] = trigger
-	}
-	contextCfgs := map[string]espejotev1alpha1.ManagedResourceContext{}
-	for _, context := range mr.Spec.Context {
-		if _, ok := contextCfgs[context.Name]; ok {
-			return fmt.Errorf("duplicate context name: %s", context.Name)
-		}
-		contextCfgs[context.Name] = context
-	}
-	readerForTrigger := func(triggerName string) (client.Reader, error) {
-		sel, err := objectSelectorForClusterResource(c, triggerCfgs[triggerName].WatchResource, mr.Namespace)
-		if err != nil {
-			return nil, err
-		}
-		return &objectSelectingReader{c, sel}, nil
+	input, err := collectInput(ctx, c, mr, renderNamespace)
+	if err != nil {
+		return fmt.Errorf("failed to collect input: %w", err)
 	}
 
-	triggers := []controllers.TriggerInfo{{}}
-	tColErrs := []error{}
-	for _, trigger := range mr.Spec.Triggers {
-		if trigger.Interval.Duration != 0 {
-			triggers = append(triggers, controllers.TriggerInfo{TriggerName: trigger.Name})
-			continue
-		}
+	importer := controllers.FromClientImporter(c, mr.Namespace, jsonnetLibraryNamespace)
 
-		if trigger.WatchResource.APIVersion == "" {
-			tColErrs = append(tColErrs, fmt.Errorf("trigger %q has neither interval or APIVersion", trigger.Name))
-			continue
-		}
-
-		r, err := readerForTrigger(trigger.Name)
-		if err != nil {
-			tColErrs = append(tColErrs, fmt.Errorf("failed to create reader for trigger %q: %w", trigger.Name, err))
-			continue
-		}
-		t := &unstructured.Unstructured{}
-		t.SetGroupVersionKind(schema.GroupVersionKind{
-			Group:   trigger.WatchResource.GetGroup(),
-			Version: trigger.WatchResource.GetAPIVersion(),
-			Kind:    trigger.WatchResource.GetKind(),
-		})
-		tl, err := t.ToList()
-		if err != nil {
-			tColErrs = append(tColErrs, fmt.Errorf("failed to create list for trigger %q: %w", trigger.Name, err))
-			continue
-		}
-		if err := r.List(ctx, tl); err != nil {
-			tColErrs = append(tColErrs, fmt.Errorf("failed to list objects for trigger %q: %w", trigger.Name, err))
-			continue
-		}
-
-		triggers = slices.Grow(triggers, len(tl.Items))
-		for _, obj := range tl.Items {
-			triggers = append(triggers, controllers.TriggerInfo{
-				TriggerName:   trigger.Name,
-				WatchResource: watchResourceFromObj(&obj),
-			})
-		}
-	}
-	if err := multierr.Combine(tColErrs...); err != nil {
-		return fmt.Errorf("some triggers failed to collect: %w", err)
-	}
-
-	renderer := &controllers.Renderer{
-		Importer:            controllers.FromClientImporter(c, mr.Namespace, jsonnetLibraryNamespace),
-		TriggerClientGetter: readerForTrigger,
-		ContextClientGetter: func(contextName string) (client.Reader, error) {
-			sel, err := objectSelectorForClusterResource(c, contextCfgs[contextName].Resource, mr.Namespace)
-			if err != nil {
-				return nil, err
-			}
-			return &objectSelectingReader{c, sel}, nil
-		},
-	}
-
-	for _, trigger := range triggers {
-		rendered, err := renderer.Render(ctx, mr, trigger)
-		if err != nil {
-			return fmt.Errorf("failed to render: %w", err)
-		}
-
-		if err := printRendered(out, rendered, trigger); err != nil {
-			return fmt.Errorf("failed to print rendered output: %w", err)
-		}
+	if err := renderFromInput(ctx, out, mr, input, importer); err != nil {
+		return fmt.Errorf("failed to render input: %w", err)
 	}
 
 	return nil

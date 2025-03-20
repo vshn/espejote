@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
 	"github.com/vshn/espejote/testutil"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,6 +21,8 @@ import (
 )
 
 func Test_runRender_Cluster(t *testing.T) {
+	t.Parallel()
+
 	scheme, restCfg := testutil.SetupEnvtestEnv(t)
 
 	cli, err := client.New(restCfg, client.Options{
@@ -42,6 +45,18 @@ func Test_runRender_Cluster(t *testing.T) {
 		}
 		require.NoError(t, cli.Create(t.Context(), cm))
 	}
+	lib := &espejotev1alpha1.JsonnetLibrary{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "jsonnetlibrary-sample",
+			Namespace: testns,
+		},
+		Spec: espejotev1alpha1.JsonnetLibrarySpec{
+			Data: map[string]string{
+				"sample.libsonnet": `{test: "test"}`,
+			},
+		},
+	}
+	require.NoError(t, cli.Create(t.Context(), lib))
 
 	out := new(bytes.Buffer)
 	cmd := NewRenderCommand(func() (*rest.Config, error) { return restCfg, nil })
@@ -86,7 +101,7 @@ func Test_staticReader(t *testing.T) {
 	obj.SetNamespace("default")
 
 	subject := staticUnstructuredReader{
-		objs: []*unstructured.Unstructured{obj},
+		objs: []unstructured.Unstructured{*obj},
 	}
 
 	var got unstructured.Unstructured
