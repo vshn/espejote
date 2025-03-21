@@ -180,6 +180,8 @@ func ignoreErrCacheNotReady(err error) error {
 //+kubebuilder:rbac:groups=espejote.io,resources=managedresources/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=espejote.io,resources=managedresources/finalizers,verbs=update
 
+//+kubebuilder:rbac:groups=espejote.io,resources=jsonnetlibraries,verbs=get;list;watch
+
 //+kubebuilder:rbac:groups="",resources=serviceaccounts/token,verbs=create
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
