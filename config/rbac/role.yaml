@@ -20,6 +20,14 @@ rules:
 - apiGroups:
   - espejote.io
   resources:
+  - jsonnetlibraries
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - espejote.io
+  resources:
   - managedresources
   verbs:
   - create
