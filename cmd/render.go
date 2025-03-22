@@ -94,7 +94,8 @@ type RenderInputContext struct {
 func (rcc *renderCommandConfig) runRender(cmd *cobra.Command, args []string) error {
 	renderNamespace, rnerr := cmd.Flags().GetString("namespace")
 	renderInputs, rierr := cmd.Flags().GetStringArray("input")
-	if err := multierr.Combine(rnerr, rierr); err != nil {
+	jsonnetLibraryNamespace, jlnerr := cmd.Flags().GetString("jsonnet-library-namespace")
+	if err := multierr.Combine(rnerr, rierr, jlnerr); err != nil {
 		return fmt.Errorf("failed to get flags: %w", err)
 	}
 
@@ -113,7 +114,7 @@ func (rcc *renderCommandConfig) runRender(cmd *cobra.Command, args []string) err
 	if len(renderInputs) > 0 {
 		return rcc.renderFromInputFiles(ctx, cmd.OutOrStdout(), mr, renderInputs)
 	}
-	return rcc.renderFromCluster(ctx, cmd.OutOrStdout(), mr, renderNamespace)
+	return rcc.renderFromCluster(ctx, cmd.OutOrStdout(), mr, renderNamespace, jsonnetLibraryNamespace)
 }
 
 func (rcc *renderCommandConfig) renderFromInputFiles(ctx context.Context, out io.Writer, mr espejotev1alpha1.ManagedResource, renderInputs []string) error {
@@ -236,7 +237,7 @@ func (r *staticUnstructuredReader) List(ctx context.Context, list client.ObjectL
 	return nil
 }
 
-func (rcc *renderCommandConfig) renderFromCluster(ctx context.Context, out io.Writer, mr espejotev1alpha1.ManagedResource, renderNamespace string) error {
+func (rcc *renderCommandConfig) renderFromCluster(ctx context.Context, out io.Writer, mr espejotev1alpha1.ManagedResource, renderNamespace, jsonnetLibraryNamespace string) error {
 	scheme := newScheme()
 
 	if renderNamespace != "" {

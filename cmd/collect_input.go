@@ -49,8 +49,9 @@ type collectInputCommandConfig struct {
 }
 
 func (rcc *collectInputCommandConfig) runCollectInput(cmd *cobra.Command, args []string) error {
-	renderNamespace, err := cmd.Flags().GetString("namespace")
-	if err != nil {
+	renderNamespace, nserr := cmd.Flags().GetString("namespace")
+	jsonnetLibraryNamespace, jnserr := cmd.Flags().GetString("jsonnet-library-namespace")
+	if err := multierr.Combine(nserr, jnserr); err != nil {
 		return fmt.Errorf("failed to get flags: %w", err)
 	}
 
