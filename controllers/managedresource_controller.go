@@ -594,9 +594,9 @@ func (r *Renderer) renderContexts(ctx context.Context, getReader func(string) (c
 		}
 		var contextObj unstructured.Unstructured
 		contextObj.SetGroupVersionKind(schema.GroupVersionKind{
-			Group:   con.Resource.Group,
-			Version: con.Resource.APIVersion,
-			Kind:    con.Resource.Kind,
+			Group:   con.Resource.GetGroup(),
+			Version: con.Resource.GetVersion(),
+			Kind:    con.Resource.GetKind(),
 		})
 		contextObjs, err := contextObj.ToList()
 		if err != nil {

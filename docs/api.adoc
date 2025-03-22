@@ -76,8 +76,8 @@ Defaults to "Strict". + | Strict | Enum: [Ignore Strict] +
 [cols="20a,50a,15a,15a", options="header"]
 |===
 | Field | Description | Default | Validation
-| *`apiVersion`* __string__ | APIVersion of the resource that should be added to the context. + |  | 
-| *`group`* __string__ | Group of the resource that should be added to the context. + |  | 
+| *`apiVersion`* __string__ | APIVersion of the resource that should be added to the context. +
+The APIVersion can be in the form "group/version" or "version". + |  | 
 | *`kind`* __string__ | Kind of the resource that should be added to the context. + |  | 
 | *`name`* __string__ | Name of the resource that should be added to the context. +
 If not set, all resources of the specified Kind are added to the context. + |  | 

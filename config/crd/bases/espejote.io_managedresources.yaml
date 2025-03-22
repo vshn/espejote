@@ -93,12 +93,9 @@ spec:
                         Adds a list of zero or more resources to the context.
                       properties:
                         apiVersion:
-                          description: APIVersion of the resource that should be added
-                            to the context.
-                          type: string
-                        group:
-                          description: Group of the resource that should be added
-                            to the context.
+                          description: |-
+                            APIVersion of the resource that should be added to the context.
+                            The APIVersion can be in the form "group/version" or "version".
                           type: string
                         ignoreNames:
                           description: |-
