@@ -138,6 +138,10 @@ type TriggerWatchResource struct {
 	IgnoreNames []string `json:"ignoreNames,omitempty"`
 }
 
+// Resource definitions should be kept in sync.
+// Only difference is the doc strings.
+var _ = ContextResource(TriggerWatchResource{})
+
 func (t TriggerWatchResource) GetVersion() string {
 	if p := strings.SplitN(t.APIVersion, "/", 2); len(p) == 2 {
 		return p[1]
@@ -180,7 +184,7 @@ func (t TriggerWatchResource) String() string {
 	gvk := metav1.GroupVersionKind{
 		Group:   t.GetGroup(),
 		Version: t.GetVersion(),
-		Kind:    t.Kind,
+		Kind:    t.GetKind(),
 	}
 	ns := "empty"
 	if t.Namespace != nil {
@@ -203,9 +207,8 @@ var _ ClusterResource = ContextResource{}
 
 type ContextResource struct {
 	// APIVersion of the resource that should be added to the context.
+	// The APIVersion can be in the form "group/version" or "version".
 	APIVersion string `json:"apiVersion,omitempty"`
-	// Group of the resource that should be added to the context.
-	Group string `json:"group,omitempty"`
 	// Kind of the resource that should be added to the context.
 	Kind string `json:"kind,omitempty"`
 
@@ -234,11 +237,17 @@ type ContextResource struct {
 }
 
 func (t ContextResource) GetVersion() string {
+	if p := strings.SplitN(t.APIVersion, "/", 2); len(p) == 2 {
+		return p[1]
+	}
 	return t.APIVersion
 }
 
 func (t ContextResource) GetGroup() string {
-	return t.Group
+	if p := strings.SplitN(t.APIVersion, "/", 2); len(p) == 2 {
+		return p[0]
+	}
+	return ""
 }
 
 func (t ContextResource) GetKind() string {
@@ -267,9 +276,9 @@ func (t ContextResource) GetIgnoreNames() []string {
 
 func (t ContextResource) String() string {
 	gvk := metav1.GroupVersionKind{
-		Group:   t.Group,
-		Version: t.APIVersion,
-		Kind:    t.Kind,
+		Group:   t.GetGroup(),
+		Version: t.GetVersion(),
+		Kind:    t.GetKind(),
 	}
 	ns := "empty"
 	if t.Namespace != nil {
