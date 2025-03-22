@@ -62,6 +62,11 @@ func newScheme() *runtime.Scheme {
 }
 
 func runController(cmd *cobra.Command, _ []string) error {
+	jsonnetLibraryNamespace, err := cmd.Flags().GetString("jsonnet-library-namespace")
+	if err != nil {
+		return fmt.Errorf("failed to get flags: %w", err)
+	}
+
 	scheme := newScheme()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
