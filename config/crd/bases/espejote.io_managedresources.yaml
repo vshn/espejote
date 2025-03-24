@@ -178,6 +178,12 @@ spec:
                             If not set, the namespace of the ManagedResource is used.
                             Can be set to empty string to add all namespaces.
                           type: string
+                        stripManagedFields:
+                          description: |-
+                            StripManagedFields removes the managedFields from the watched resource.
+                            managedFields are not used in Espejote and if the template does not use them, they can be removed to significantly reduce the size of cached objects.
+                            Defaults to true if not set.
+                          type: boolean
                       type: object
                   required:
                   - name
@@ -325,6 +331,12 @@ spec:
                             If not set, the namespace of the ManagedResource is used.
                             Can be explicitly set to empty string to watch all namespaces.
                           type: string
+                        stripManagedFields:
+                          description: |-
+                            StripManagedFields removes the managedFields from the watched resource.
+                            managedFields are not used in Espejote and if the template does not use them, they can be removed to significantly reduce the size of cached objects.
+                            Defaults to true if not set.
+                          type: boolean
                       type: object
                   required:
                   - name

@@ -94,6 +94,9 @@ Filtered objects are dropped before any caching or processing. + |  |
 This is considered experimental and might be removed in the future. +
 The filtering is done on the controller side and might not be as efficient as the LabelSelector. +
 Filtered objects are dropped before any caching or processing. + |  | 
+| *`stripManagedFields`* __boolean__ | StripManagedFields removes the managedFields from the watched resource. +
+managedFields are not used in Espejote and if the template does not use them, they can be removed to significantly reduce the size of cached objects. +
+Defaults to true if not set. + |  | 
 |===
 
 
@@ -312,6 +315,9 @@ Filtered objects are dropped before any caching or processing. + |  |
 This is considered experimental and might be removed in the future. +
 The filtering is done on the controller side and might not be as efficient as the LabelSelector. +
 Filtered objects are dropped before any caching or processing. + |  | 
+| *`stripManagedFields`* __boolean__ | StripManagedFields removes the managedFields from the watched resource. +
+managedFields are not used in Espejote and if the template does not use them, they can be removed to significantly reduce the size of cached objects. +
+Defaults to true if not set. + |  | 
 |===
 
 

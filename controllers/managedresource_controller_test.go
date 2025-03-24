@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -974,6 +975,97 @@ local esp = import 'espejote.libsonnet';
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
+	t.Run("strip managedFields", func(t *testing.T) {
+		t.Parallel()
+
+		testns := testutil.TmpNamespace(t, c)
+
+		contextCM := &corev1.ConfigMap{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "v1",
+				Kind:       "ConfigMap",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "context",
+				Namespace: testns,
+			},
+			Data: map[string]string{
+				"test": "test",
+			},
+		}
+		require.NoError(t, c.Patch(ctx, contextCM, client.Apply, client.FieldOwner("test")))
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Triggers: []espejotev1alpha1.ManagedResourceTrigger{{
+					Name: "trigger",
+					WatchResource: espejotev1alpha1.TriggerWatchResource{
+						APIVersion: "v1",
+						Kind:       "ConfigMap",
+						MatchNames: []string{"context"},
+					},
+				}},
+				Context: []espejotev1alpha1.ManagedResourceContext{{
+					Name: "context",
+					Resource: espejotev1alpha1.ContextResource{
+						APIVersion: "v1",
+						Kind:       "ConfigMap",
+						MatchNames: []string{"context"},
+					},
+				}},
+				Template: `
+local esp = import 'espejote.libsonnet';
+
+if esp.triggerName() == 'trigger' then {
+  apiVersion: 'v1',
+  kind: 'ConfigMap',
+  metadata: {
+    name: 'output',
+  },
+  data: {
+    local tmf = std.get(esp.triggerData().resource.metadata, 'managedFields'),
+    triggerManagedFields: if tmf != null then std.manifestJsonMinified(std.length(tmf)) else '0',
+    assert std.isArray(esp.context().context) : 'Context should be available',
+    assert std.length(esp.context().context) == 1 : 'Must have one config map in context',
+    local cmf = std.get(esp.context().context[0].metadata, 'managedFields'),
+    contextManagedFields: if cmf != null then std.manifestJsonMinified(std.length(cmf)) else '0',
+  },
+}
+`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			assert.Equal(t, "Ready", mr.Status.Status)
+
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "output"}, &cm))
+			assert.Equal(t, "0", cm.Data["triggerManagedFields"])
+			assert.Equal(t, "0", cm.Data["contextManagedFields"])
+		}, 5*time.Second, 100*time.Millisecond)
+
+		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+		mr.Spec.Triggers[0].WatchResource.StripManagedFields = ptr.To(false)
+		mr.Spec.Context[0].Resource.StripManagedFields = ptr.To(false)
+		require.NoError(t, c.Update(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			assert.Equal(t, "Ready", mr.Status.Status)
+
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "output"}, &cm))
+			assert.NotEqual(t, "0", cm.Data["triggerManagedFields"])
+			assert.NotEqual(t, "0", cm.Data["contextManagedFields"])
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
 	t.Run("custom metrics", func(t *testing.T) {
 		t.Parallel()
 
@@ -1051,9 +1143,9 @@ espejote_cached_objects{managedresource="test",name="cms",namespace="`+testns+`"
 espejote_cached_objects{managedresource="test",name="matching-cms",namespace="`+testns+`",type="trigger"} 2
 # HELP espejote_cache_size_bytes Size of the cache in bytes. Note that this is an approximation. The metric should not be compared across different espejote versions.
 # TYPE espejote_cache_size_bytes gauge
-espejote_cache_size_bytes{managedresource="test",name="all-cms",namespace="`+testns+`",type="context"} 106176
-espejote_cache_size_bytes{managedresource="test",name="cms",namespace="`+testns+`",type="context"} 75731
-espejote_cache_size_bytes{managedresource="test",name="matching-cms",namespace="`+testns+`",type="trigger"} 2304
+espejote_cache_size_bytes{managedresource="test",name="all-cms",namespace="`+testns+`",type="context"} 67375
+espejote_cache_size_bytes{managedresource="test",name="cms",namespace="`+testns+`",type="context"} 36930
+espejote_cache_size_bytes{managedresource="test",name="matching-cms",namespace="`+testns+`",type="trigger"} 1527
 # HELP espejote_reconciles_total Total number of reconciles by trigger.
 # TYPE espejote_reconciles_total counter
 espejote_reconciles_total{managedresource="test",namespace="`+testns+`",trigger="matching-cms"} 2
@@ -1147,30 +1239,6 @@ func urlGatherer(url string) prometheus.Gatherer {
 
 		return metrics, multierr.Combine(errs...)
 	})
-}
-
-func gatherMetrics(t *testing.T, url string) []*dto.MetricFamily {
-	t.Helper()
-
-	resp, err := http.Get(url)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	dec := expfmt.NewDecoder(resp.Body, expfmt.NewFormat(expfmt.TypeTextPlain))
-
-	metrics := make([]*dto.MetricFamily, 0)
-	for {
-		mf := &dto.MetricFamily{}
-		err := dec.Decode(mf)
-		if err == io.EOF {
-			break
-		}
-		require.NoError(t, err)
-		metrics = append(metrics, mf)
-	}
-
-	return metrics
 }
 
 func eventSelectorFor(managedResourceName string) client.ListOption {

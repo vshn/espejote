@@ -744,6 +744,11 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 		})
 	}
 
+	var transformFunc toolscache.TransformFunc
+	if cr.GetStripManagedFields() {
+		transformFunc = cache.TransformStripManagedFields()
+	}
+
 	c, err := cache.New(rc, cache.Options{
 		Scheme: r.Scheme,
 		Mapper: r.mapper,
@@ -754,6 +759,8 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 		// We don't want to deep copy the objects, as we don't modify them
 		// This is mostly to make metric collection more efficient
 		DefaultUnsafeDisableDeepCopy: ptr.To(true),
+
+		DefaultTransform: transformFunc,
 
 		NewInformer: filterInf,
 	})
