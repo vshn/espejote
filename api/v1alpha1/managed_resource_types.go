@@ -6,6 +6,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 // ManagedResourceSpec defines the desired state of ManagedResource
@@ -103,6 +104,8 @@ type ClusterResource interface {
 	GetLabelSelector() *metav1.LabelSelector
 	GetMatchNames() []string
 	GetIgnoreNames() []string
+
+	GetStripManagedFields() bool
 }
 
 var _ ClusterResource = TriggerWatchResource{}
@@ -136,6 +139,12 @@ type TriggerWatchResource struct {
 	// The filtering is done on the controller side and might not be as efficient as the LabelSelector.
 	// Filtered objects are dropped before any caching or processing.
 	IgnoreNames []string `json:"ignoreNames,omitempty"`
+
+	// StripManagedFields removes the managedFields from the watched resource.
+	// managedFields are not used in Espejote and if the template does not use them, they can be removed to significantly reduce the size of cached objects.
+	// Defaults to true if not set.
+	// +optional
+	StripManagedFields *bool `json:"stripManagedFields,omitempty"`
 }
 
 // Resource definitions should be kept in sync.
@@ -178,6 +187,10 @@ func (t TriggerWatchResource) GetMatchNames() []string {
 
 func (t TriggerWatchResource) GetIgnoreNames() []string {
 	return t.IgnoreNames
+}
+
+func (t TriggerWatchResource) GetStripManagedFields() bool {
+	return ptr.Deref(t.StripManagedFields, true)
 }
 
 func (t TriggerWatchResource) String() string {
@@ -234,6 +247,12 @@ type ContextResource struct {
 	// The filtering is done on the controller side and might not be as efficient as the LabelSelector.
 	// Filtered objects are dropped before any caching or processing.
 	IgnoreNames []string `json:"ignoreNames,omitempty"`
+
+	// StripManagedFields removes the managedFields from the watched resource.
+	// managedFields are not used in Espejote and if the template does not use them, they can be removed to significantly reduce the size of cached objects.
+	// Defaults to true if not set.
+	// +optional
+	StripManagedFields *bool `json:"stripManagedFields,omitempty"`
 }
 
 func (t ContextResource) GetVersion() string {
@@ -272,6 +291,10 @@ func (t ContextResource) GetMatchNames() []string {
 
 func (t ContextResource) GetIgnoreNames() []string {
 	return t.IgnoreNames
+}
+
+func (t ContextResource) GetStripManagedFields() bool {
+	return ptr.Deref(t.StripManagedFields, true)
 }
 
 func (t ContextResource) String() string {

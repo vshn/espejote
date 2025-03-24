@@ -22,8 +22,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/rest"
+	toolscache "k8s.io/client-go/tools/cache"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/yaml"
@@ -319,6 +321,22 @@ func (r *objectSelectingReader) Get(ctx context.Context, key client.ObjectKey, o
 		return apierrors.NewNotFound(schema.GroupResource{}, key.Name)
 	}
 
+	if r.sel.transformFunc != nil {
+		objt, err := r.sel.transformFunc(obj)
+		if err != nil {
+			return fmt.Errorf("failed to transform object: %w", err)
+		}
+		obju, ok := obj.(*unstructured.Unstructured)
+		if !ok {
+			return fmt.Errorf("expected *unstructured.Unstructured, got %T", obj)
+		}
+		objtu, ok := objt.(*unstructured.Unstructured)
+		if !ok {
+			return fmt.Errorf("expected *unstructured.Unstructured, got %T", objt)
+		}
+		*obju = *objtu
+	}
+
 	return nil
 }
 
@@ -351,9 +369,17 @@ func (r *objectSelectingReader) List(ctx context.Context, list client.ObjectList
 		if !ok {
 			return fmt.Errorf("expected client.Object in list")
 		}
-		if r.sel.filterFunc(obj) {
-			filtered = append(filtered, obj)
+		if !r.sel.filterFunc(obj) {
+			continue
 		}
+		if r.sel.transformFunc != nil {
+			objt, err := r.sel.transformFunc(obj)
+			if err != nil {
+				return fmt.Errorf("failed to transform object: %w", err)
+			}
+			obj = objt.(client.Object)
+		}
+		filtered = append(filtered, obj)
 	}
 
 	if err := meta.SetList(list, filtered); err != nil {
@@ -368,6 +394,7 @@ type objectSelector struct {
 	fieldsSelector fields.Selector
 	labelSelector  labels.Selector
 	filterFunc     func(client.Object) bool
+	transformFunc  toolscache.TransformFunc
 }
 
 func objectSelectorForClusterResource(c client.Client, cr espejotev1alpha1.ClusterResource, defaultNamespace string) (*objectSelector, error) {
@@ -408,11 +435,17 @@ func objectSelectorForClusterResource(c client.Client, cr espejotev1alpha1.Clust
 		}
 	}
 
+	var transform toolscache.TransformFunc
+	if cr.GetStripManagedFields() {
+		transform = cache.TransformStripManagedFields()
+	}
+
 	return &objectSelector{
 		target:         *watchTarget,
 		fieldsSelector: fields.AndSelectors(sel...),
 		labelSelector:  lblSel,
 		filterFunc:     filter,
+		transformFunc:  transform,
 	}, nil
 }
 
