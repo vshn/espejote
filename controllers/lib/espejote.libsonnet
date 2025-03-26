@@ -1,7 +1,54 @@
 local context = std.extVar('__internal_use_espejote_lib_context');
 local trigger = std.extVar('__internal_use_espejote_lib_trigger');
+local admissionRequest = std.extVar('__internal_use_espejote_lib_admissionrequest');
+
+local admission = {
+  admissionRequest: function() admissionRequest,
+
+  // allowed returns an admission response that allows the operation.
+  allowed: function(msg='') {
+    assert std.isString(msg) : 'msg must be a string, is: %s' % std.manifestJsonMinified(msg),
+    allowed: true,
+    message: msg,
+  },
+
+  // denied returns an admission response that denies the operation.
+  denied: function(msg='') {
+    assert std.isString(msg) : 'msg must be a string, is: %s' % std.manifestJsonMinified(msg),
+    allowed: false,
+    message: msg,
+  },
+
+  // jsonPatchOp returns a JSON patch operation.
+  jsonPatchOp: function(op, path, value=null) {
+    op: op,
+    path: path,
+    value: value,
+  },
+
+  // patched returns an admission response that allows the operation and includes a list of JSON patches.
+  // The patches should be a list of JSONPatch operations.
+  // JSONPatch operations can be created using the jsonPatchOp() function.
+  // The patches are applied in order.
+  patched: function(msg, patches) {
+    assert std.isString(msg) : 'msg must be a string, is: %s' % std.manifestJsonMinified(msg),
+    assert std.isArray(patches) : 'patches must be an array, is: %s' % std.manifestJsonMinified(patches),
+    allowed: true,
+    message: msg,
+    patches: patches,
+  },
+};
+
+local alpha = {
+  // Admission contains functions for validating and mutating objects
+  admission: admission,
+};
 
 {
+  // ALPHA is where future features are tested.
+  // These features are not yet stable and may change in the future, even without a major version bump.
+  ALPHA: alpha,
+
   // Returns the name of the trigger that caused the template to be called or null if unknown
   triggerName: function() std.get(trigger, 'name'),
   // Gets data added to the trigger by the controller.

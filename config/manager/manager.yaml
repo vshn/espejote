@@ -75,5 +75,8 @@ spec:
           requests:
             cpu: 10m
             memory: 32Mi
+        volumeMounts: []
+        ports: []
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
+      volumes: []

@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
+	"go.uber.org/multierr"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"github.com/spf13/cobra"
@@ -13,11 +17,14 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	"github.com/vshn/espejote/admission"
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
 	"github.com/vshn/espejote/controllers"
 	//+kubebuilder:scaffold:imports
@@ -43,6 +50,20 @@ func init() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 
+	defaultNamespace := "default"
+	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+		defaultNamespace = ns
+	}
+	controllerCmd.Flags().String("controller-namespace", defaultNamespace, "The namespace the controller runs in.")
+
+	controllerCmd.Flags().Bool("enable-dynamic-admission-webhook", true, "Enable the dynamic admission webhook.")
+	controllerCmd.Flags().String("dynamic-admission-webhook-service-name", "espejote-webhook-service", "The name of the service that serves the dynamic admission webhook.")
+	controllerCmd.Flags().String("dynamic-admission-webhook-name", "espejote-dynamic-webhook", "The name of the dynamic admission webhook.")
+
+	controllerCmd.Flags().String("webhook-cert-path", "", "The directory that contains the webhook certificate.")
+	controllerCmd.Flags().String("webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
+	controllerCmd.Flags().String("webhook-cert-key", "tls.key", "The name of the webhook key file.")
+
 	registerJsonnetLibraryNamespaceFlag(controllerCmd)
 }
 
@@ -62,14 +83,54 @@ func newScheme() *runtime.Scheme {
 }
 
 func runController(cmd *cobra.Command, _ []string) error {
-	jsonnetLibraryNamespace, err := cmd.Flags().GetString("jsonnet-library-namespace")
-	if err != nil {
+	jsonnetLibraryNamespace, jlnerr := cmd.Flags().GetString("jsonnet-library-namespace")
+	controllerNamespace, cnerr := cmd.Flags().GetString("controller-namespace")
+	enableDynamicAdmissionWebhook, edawerr := cmd.Flags().GetBool("enable-dynamic-admission-webhook")
+	dynamicAdmissionWebhookServiceName, dawsnerr := cmd.Flags().GetString("dynamic-admission-webhook-service-name")
+	dynamicAdmissionWebhookName, dawnerr := cmd.Flags().GetString("dynamic-admission-webhook-name")
+	webhookCertPath, wcperr := cmd.Flags().GetString("webhook-cert-path")
+	webhookCertName, wcnerr := cmd.Flags().GetString("webhook-cert-name")
+	webhookCertKey, wckerr := cmd.Flags().GetString("webhook-cert-key")
+	if err := multierr.Combine(jlnerr, cnerr, dawsnerr, wcperr, wcnerr, wckerr, edawerr, dawnerr); err != nil {
 		return fmt.Errorf("failed to get flags: %w", err)
 	}
+
+	cmd.Println("Starting the controller manager",
+		"jsonnet-library-namespace", jsonnetLibraryNamespace,
+		"controller-namespace", controllerNamespace,
+		"enable-dynamic-admission-webhook", enableDynamicAdmissionWebhook,
+		"dynamic-admission-webhook-service-name", dynamicAdmissionWebhookServiceName,
+		"dynamic-admission-webhook-name", dynamicAdmissionWebhookName,
+	)
 
 	scheme := newScheme()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
+
+	var webhookCertWatcher *certwatcher.CertWatcher
+
+	var webhookTLSOpts []func(*tls.Config)
+	if len(webhookCertPath) > 0 {
+		cmd.Println("Initializing webhook certificate watcher using provided certificates",
+			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
+
+		var err error
+		webhookCertWatcher, err = certwatcher.New(
+			filepath.Join(webhookCertPath, webhookCertName),
+			filepath.Join(webhookCertPath, webhookCertKey),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to initialize webhook certificate watcher: %w", err)
+		}
+
+		webhookTLSOpts = append(webhookTLSOpts, func(config *tls.Config) {
+			config.GetCertificate = webhookCertWatcher.GetCertificate
+		})
+	}
+
+	webhookServer := webhook.NewServer(webhook.Options{
+		TLSOpts: webhookTLSOpts,
+	})
 
 	restConf := ctrl.GetConfigOrDie()
 	mgr, err := ctrl.NewManager(restConf, ctrl.Options{
@@ -77,6 +138,7 @@ func runController(cmd *cobra.Command, _ []string) error {
 		Metrics: server.Options{
 			BindAddress: metricsAddr,
 		},
+		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "f7157d46.espejote.io",
@@ -110,7 +172,32 @@ func runController(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("unable to create ManagedResource controller: %w", err)
 	}
 	metrics.Registry.MustRegister(&controllers.CacheSizeCollector{ManagedResourceReconciler: mrr})
+
+	if enableDynamicAdmissionWebhook {
+		if err := (&controllers.AdmissionReconciler{
+			Client: mgr.GetClient(),
+
+			MutatingWebhookName:   dynamicAdmissionWebhookName,
+			ValidatingWebhookName: dynamicAdmissionWebhookName,
+
+			WebhookPort:         9443, // Controller-runtime default
+			WebhookServiceName:  dynamicAdmissionWebhookServiceName,
+			ControllerNamespace: controllerNamespace,
+		}).SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("unable to create ManagedResourceReconciler controller: %w", err)
+		}
+
+		mgr.GetWebhookServer().Register("/dynamic/{namespace}/{name}", admission.NewHandler(mgr.GetClient(), jsonnetLibraryNamespace))
+	}
+
 	//+kubebuilder:scaffold:builder
+
+	if webhookCertWatcher != nil {
+		cmd.Println("Adding webhook certificate watcher to manager")
+		if err := mgr.Add(webhookCertWatcher); err != nil {
+			return fmt.Errorf("unable to add webhook certificate watcher to manager: %w", err)
+		}
+	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return fmt.Errorf("unable to set up health check: %w", err)

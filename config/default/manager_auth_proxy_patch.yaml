@@ -25,6 +25,12 @@ spec:
                   values:
                     - linux
       containers:
+      - name: manager
+        args:
+        - "controller"
+        - "--health-probe-bind-address=:8081"
+        - "--metrics-bind-address=127.0.0.1:8080"
+        - "--leader-elect"
       - name: kube-rbac-proxy
         securityContext:
           allowPrivilegeEscalation: false
@@ -48,9 +54,3 @@ spec:
           requests:
             cpu: 5m
             memory: 64Mi
-      - name: manager
-        args:
-        - "controller"
-        - "--health-probe-bind-address=:8081"
-        - "--metrics-bind-address=127.0.0.1:8080"
-        - "--leader-elect"
