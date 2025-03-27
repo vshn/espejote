@@ -21,6 +21,9 @@ local admission = {
 
   // jsonPatchOp returns a JSON patch operation.
   jsonPatchOp: function(op, path, value=null) {
+    local allowedOPs = ['add', 'remove', 'replace', 'move', 'copy', 'test'],
+    assert std.member(allowedOPs, op) : 'op must be one of %s, is: %s' % [std.manifestJsonMinified(allowedOPs), op],
+    assert std.isString(path) : 'path must be a string is: %s' % std.manifestJsonMinified(op),
     op: op,
     path: path,
     value: value,
