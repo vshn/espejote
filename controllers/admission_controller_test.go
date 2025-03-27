@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,10 +26,12 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	testns := testutil.TmpNamespace(t, c)
+
 	val := espejotev1alpha1.Admission{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "val",
-			Namespace: "default",
+			Namespace: testns,
 		},
 		Spec: espejotev1alpha1.AdmissionSpec{
 			Mutating: false,
@@ -52,7 +55,7 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 	mut := espejotev1alpha1.Admission{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "mut",
-			Namespace: "default",
+			Namespace: testns,
 		},
 		Spec: espejotev1alpha1.AdmissionSpec{
 			Mutating:             true,
@@ -76,16 +79,18 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 	var mutwebhook admissionregistrationv1.MutatingWebhookConfiguration
 	require.NoError(t, c.Get(context.Background(), client.ObjectKey{Name: "espejote-webhook"}, &mutwebhook))
 	require.Len(t, mutwebhook.Webhooks, 1)
-	assert.Equal(t, "mut.default.espejote.io", mutwebhook.Webhooks[0].Name)
+	assert.Equal(t, strings.Join([]string{"mut", testns, "espejote.io"}, "."), mutwebhook.Webhooks[0].Name)
 	assert.Equal(t, "system", mutwebhook.Webhooks[0].ClientConfig.Service.Namespace)
-	assert.Equal(t, "/dynamic/default/mut", *mutwebhook.Webhooks[0].ClientConfig.Service.Path)
+	assert.Equal(t, strings.Join([]string{"/dynamic", testns, "mut"}, "/"), *mutwebhook.Webhooks[0].ClientConfig.Service.Path)
 	assert.Equal(t, ptr.To(int32(subject.WebhookPort)), mutwebhook.Webhooks[0].ClientConfig.Service.Port)
+	assert.Equal(t, map[string]string{"kubernetes.io/metadata.name": testns}, mutwebhook.Webhooks[0].NamespaceSelector.MatchLabels)
 
 	var valwebhook admissionregistrationv1.ValidatingWebhookConfiguration
 	require.NoError(t, c.Get(context.Background(), client.ObjectKey{Name: "espejote-webhook"}, &valwebhook))
 	require.Len(t, valwebhook.Webhooks, 1)
-	assert.Equal(t, "val.default.espejote.io", valwebhook.Webhooks[0].Name)
+	assert.Equal(t, strings.Join([]string{"val", testns, "espejote.io"}, "."), valwebhook.Webhooks[0].Name)
 	assert.Equal(t, "system", valwebhook.Webhooks[0].ClientConfig.Service.Namespace)
-	assert.Equal(t, "/dynamic/default/val", *valwebhook.Webhooks[0].ClientConfig.Service.Path)
+	assert.Equal(t, strings.Join([]string{"/dynamic", testns, "val"}, "/"), *valwebhook.Webhooks[0].ClientConfig.Service.Path)
 	assert.Equal(t, ptr.To(int32(subject.WebhookPort)), valwebhook.Webhooks[0].ClientConfig.Service.Port)
+	assert.Equal(t, map[string]string{"kubernetes.io/metadata.name": testns}, valwebhook.Webhooks[0].NamespaceSelector.MatchLabels)
 }

@@ -62,7 +62,9 @@ AdmissionSpec defines the desired state of Admission.
 |===
 | Field | Description | Default | Validation
 | *`webhookConfiguration`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-webhookconfiguration[$$WebhookConfiguration$$]__ | WebhookConfiguration defines the configuration for the Admission webhook. +
-Allows fine grained control over what is forwarded to the webhook. + |  | 
+Allows fine grained control over what is forwarded to the webhook. +
+Note that Admission enforces namespace isolation. The namespaceSelector field is set to the namespace of the Admission and can't be overridden. +
+There will be a ClusterAdmission in the future to allow for cluster wide admission control. + |  | 
 | *`mutating`* __boolean__ | Mutating defines if the Admission should create a MutatingWebhookConfiguration or a ValidatingWebhookConfiguration. + |  | 
 | *`template`* __string__ | Template contains the Jsonnet code to decide the admission result. +
 Admission responses should be created using the `espejote.libsonnet` library. +
@@ -417,49 +419,6 @@ and "rules" only included `apiGroups:["apps"], apiVersions:["v1"], resources: ["
 a request to apps/v1beta1 or extensions/v1beta1 would be converted to apps/v1 and sent to the webhook. +
 
 Defaults to "Equivalent" + |  | 
-| *`namespaceSelector`* __link:https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#labelselector-v1-meta[$$LabelSelector$$]__ | NamespaceSelector decides whether to run the webhook on an object based +
-on whether the namespace for that object matches the selector. If the +
-object itself is a namespace, the matching is performed on +
-object.metadata.labels. If the object is another cluster scoped resource, +
-it never skips the webhook. +
-
-For example, to run the webhook on any objects whose namespace is not +
-associated with "runlevel" of "0" or "1";  you will set the selector as +
-follows: +
-"namespaceSelector": { +
-"matchExpressions": [ +
-{ +
-"key": "runlevel", +
-"operator": "NotIn", +
-"values": [ +
-"0", +
-"1" +
-] +
-} +
-] +
-} +
-
-If instead you want to only run the webhook on any objects whose +
-namespace is associated with the "environment" of "prod" or "staging"; +
-you will set the selector as follows: +
-"namespaceSelector": { +
-"matchExpressions": [ +
-{ +
-"key": "environment", +
-"operator": "In", +
-"values": [ +
-"prod", +
-"staging" +
-] +
-} +
-] +
-} +
-
-See +
-https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/ +
-for more examples of label selectors. +
-
-Default to the empty LabelSelector, which matches everything. + |  | 
 | *`objectSelector`* __link:https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#labelselector-v1-meta[$$LabelSelector$$]__ | ObjectSelector decides whether to run the webhook based on if the +
 object has matching labels. objectSelector is evaluated against both +
 the oldObject and newObject that would be sent to the webhook, and +

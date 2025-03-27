@@ -417,11 +417,6 @@ func (in *WebhookConfiguration) DeepCopyInto(out *WebhookConfiguration) {
 		*out = new(v1.MatchPolicyType)
 		**out = **in
 	}
-	if in.NamespaceSelector != nil {
-		in, out := &in.NamespaceSelector, &out.NamespaceSelector
-		*out = new(metav1.LabelSelector)
-		(*in).DeepCopyInto(*out)
-	}
 	if in.ObjectSelector != nil {
 		in, out := &in.ObjectSelector, &out.ObjectSelector
 		*out = new(metav1.LabelSelector)

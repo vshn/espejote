@@ -9,6 +9,8 @@ import (
 type AdmissionSpec struct {
 	// WebhookConfiguration defines the configuration for the Admission webhook.
 	// Allows fine grained control over what is forwarded to the webhook.
+	// Note that Admission enforces namespace isolation. The namespaceSelector field is set to the namespace of the Admission and can't be overridden.
+	// There will be a ClusterAdmission in the future to allow for cluster wide admission control.
 	WebhookConfiguration WebhookConfiguration `json:"webhookConfiguration,omitempty"`
 
 	// Mutating defines if the Admission should create a MutatingWebhookConfiguration or a ValidatingWebhookConfiguration.
@@ -57,52 +59,6 @@ type WebhookConfiguration struct {
 	// Defaults to "Equivalent"
 	// +optional
 	MatchPolicy *admissionregistrationv1.MatchPolicyType `json:"matchPolicy,omitempty" protobuf:"bytes,9,opt,name=matchPolicy,casttype=MatchPolicyType"`
-
-	// NamespaceSelector decides whether to run the webhook on an object based
-	// on whether the namespace for that object matches the selector. If the
-	// object itself is a namespace, the matching is performed on
-	// object.metadata.labels. If the object is another cluster scoped resource,
-	// it never skips the webhook.
-	//
-	// For example, to run the webhook on any objects whose namespace is not
-	// associated with "runlevel" of "0" or "1";  you will set the selector as
-	// follows:
-	// "namespaceSelector": {
-	//   "matchExpressions": [
-	//     {
-	//       "key": "runlevel",
-	//       "operator": "NotIn",
-	//       "values": [
-	//         "0",
-	//         "1"
-	//       ]
-	//     }
-	//   ]
-	// }
-	//
-	// If instead you want to only run the webhook on any objects whose
-	// namespace is associated with the "environment" of "prod" or "staging";
-	// you will set the selector as follows:
-	// "namespaceSelector": {
-	//   "matchExpressions": [
-	//     {
-	//       "key": "environment",
-	//       "operator": "In",
-	//       "values": [
-	//         "prod",
-	//         "staging"
-	//       ]
-	//     }
-	//   ]
-	// }
-	//
-	// See
-	// https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
-	// for more examples of label selectors.
-	//
-	// Default to the empty LabelSelector, which matches everything.
-	// +optional
-	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty" protobuf:"bytes,5,opt,name=namespaceSelector"`
 
 	// ObjectSelector decides whether to run the webhook based on if the
 	// object has matching labels. objectSelector is evaluated against both

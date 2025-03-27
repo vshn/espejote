@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -81,11 +82,15 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ reconcile.Request
 					Port:      ptr.To(r.WebhookPort),
 				},
 			},
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"kubernetes.io/metadata.name": admission.GetNamespace(),
+				},
+			},
 
 			Rules:                   admission.Spec.WebhookConfiguration.Rules,
 			FailurePolicy:           admission.Spec.WebhookConfiguration.FailurePolicy,
 			MatchPolicy:             admission.Spec.WebhookConfiguration.MatchPolicy,
-			NamespaceSelector:       admission.Spec.WebhookConfiguration.NamespaceSelector,
 			ObjectSelector:          admission.Spec.WebhookConfiguration.ObjectSelector,
 			SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
 			AdmissionReviewVersions: []string{"v1"},
@@ -113,11 +118,15 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ reconcile.Request
 					Port:      ptr.To(r.WebhookPort),
 				},
 			},
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"kubernetes.io/metadata.name": admission.GetNamespace(),
+				},
+			},
 
 			Rules:                   admission.Spec.WebhookConfiguration.Rules,
 			FailurePolicy:           admission.Spec.WebhookConfiguration.FailurePolicy,
 			MatchPolicy:             admission.Spec.WebhookConfiguration.MatchPolicy,
-			NamespaceSelector:       admission.Spec.WebhookConfiguration.NamespaceSelector,
 			ObjectSelector:          admission.Spec.WebhookConfiguration.ObjectSelector,
 			SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
 			AdmissionReviewVersions: []string{"v1"},

@@ -8,7 +8,7 @@ metadata:
   name: admission-sample
   annotations:
     description: |
-      Adds the annotation `request-user` for ConfigMap creates in the namespaces labeled admission-sample=true.
+      Adds the annotation `request-user` for ConfigMap create requests.
 spec:
   mutating: true
   webhookConfiguration:
@@ -17,9 +17,6 @@ spec:
         apiVersions: ["*"]
         operations: ["CREATE"]
         resources: ["configmaps"]
-    namespaceSelector:
-      matchLabels:
-        admission-sample: "true"
   template: |
     local esp = import 'espejote.libsonnet';
     local admission = esp.ALPHA.admission;
