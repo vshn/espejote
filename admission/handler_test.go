@@ -8,6 +8,7 @@ import (
 	"path"
 	"testing"
 
+	"github.com/go-logr/logr/testr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	admissionv1 "k8s.io/api/admission/v1"
@@ -17,6 +18,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	espadmission "github.com/vshn/espejote/admission"
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
@@ -181,6 +183,7 @@ func newAdmissionRequest(t *testing.T, name, namespace string, admreq admissionv
 	body := new(bytes.Buffer)
 	require.NoError(t, json.NewEncoder(body).Encode(b))
 	req := httptest.NewRequest("GET", path.Join("/dynamic", namespace, name), body)
+	req = req.WithContext(log.IntoContext(req.Context(), testr.New(t)))
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("name", name)
 	req.SetPathValue("namespace", namespace)
