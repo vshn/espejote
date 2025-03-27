@@ -53,7 +53,7 @@ spec:
               template:
                 description: |-
                   Template contains the Jsonnet code to decide the admission result.
-                  Add responses should be created using the `espejote.libsonnet` library.
+                  Admission responses should be created using the `espejote.libsonnet` library.
                   `esp.ALPHA.admission.allowed("Nice job!")`, `esp.ALPHA.admission.denied("Bad job!")`, `esp.ALPHA.admission.patched("added user annotation", [jsonPatchOp("add", "/metadata/annotations/user", "tom")])` are examples of valid responses.
                   The template can reference JsonnetLibrary objects by importing them.
                   JsonnetLibrary objects have the following structure:
