@@ -41,7 +41,6 @@ See the kustomize overlays for more information.
 | *`metadata`* __link:https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#objectmeta-v1-meta[$$ObjectMeta$$]__ | Refer to Kubernetes API documentation for fields of `metadata`.
  |  | 
 | *`spec`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-admissionspec[$$AdmissionSpec$$]__ |  |  | 
-| *`status`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-admissionstatus[$$AdmissionStatus$$]__ |  |  | 
 |===
 
 
@@ -74,28 +73,6 @@ JsonnetLibrary objects have the following structure: +
 - "lib/<NAME>/<KEY>" libraries in the shared library namespace. The name corresponds to the name of the JsonnetLibrary object and the key to the key in the data field. +
 The namespace is configured at controller startup and normally points to the namespace of the controller. +
 - "<NAME>/<KEY>" libraries in the same namespace as the Admission. The name corresponds to the name of the JsonnetLibrary object and the key to the key in the data field. + |  | 
-|===
-
-
-[id="{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-admissionstatus"]
-==== AdmissionStatus
-
-
-
-AdmissionStatus defines the observed state of Admission
-
-
-
-.Appears In:
-****
-- xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-admission[$$Admission$$]
-****
-
-[cols="20a,50a,15a,15a", options="header"]
-|===
-| Field | Description | Default | Validation
-| *`status`* __string__ | Status reports the last overall status of the Admission +
-More information can be found by inspecting the Admission's events with either `kubectl describe` or `kubectl get events`. + |  | 
 |===
 
 

@@ -156,15 +156,7 @@ type WebhookConfiguration struct {
 	MatchConditions []admissionregistrationv1.MatchCondition `json:"matchConditions,omitempty" patchStrategy:"merge" patchMergeKey:"name" protobuf:"bytes,12,opt,name=matchConditions"`
 }
 
-// AdmissionStatus defines the observed state of Admission
-type AdmissionStatus struct {
-	// Status reports the last overall status of the Admission
-	// More information can be found by inspecting the Admission's events with either `kubectl describe` or `kubectl get events`.
-	Status string `json:"status,omitempty"`
-}
-
 //+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
 
 // Admission is the Schema for the Admissions API.
 // Admission currently fully relies on cert-manager for certificate management and webhook certificate injection.
@@ -174,8 +166,7 @@ type Admission struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AdmissionSpec   `json:"spec,omitempty"`
-	Status AdmissionStatus `json:"status,omitempty"`
+	Spec AdmissionSpec `json:"spec,omitempty"`
 }
 
 //+kubebuilder:object:root=true
