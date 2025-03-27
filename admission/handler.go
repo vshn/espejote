@@ -39,6 +39,7 @@ func init() {
 	)
 }
 
+//+kubebuilder:rbac:groups=espejote.io,resources=admissions,verbs=get;list;watch
 //+kubebuilder:rbac:groups=espejote.io,resources=jsonnetlibraries,verbs=get;list;watch
 
 type pathContextKey struct{}
