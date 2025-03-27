@@ -67,6 +67,8 @@ func TmpNamespace(t *testing.T, c client.Client) string {
 	}
 	require.NoError(t, c.Create(t.Context(), defaultSA))
 
+	t.Log("Created namespace", ns.Name)
+
 	t.Cleanup(func() {
 		require.NoError(t, c.Delete(context.Background(), ns))
 	})
