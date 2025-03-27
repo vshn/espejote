@@ -46,7 +46,8 @@ func Test_Handler_AdmissionNotFound(t *testing.T) {
 	require.NoError(t, json.NewDecoder(res.Body).Decode(&admres))
 	require.NotNil(t, admres.Response)
 	require.NotNil(t, admres.Response.Result)
-	require.Equalf(t, http.StatusOK, int(admres.Response.Result.Code), "should allow if Admission object is not found (might have been deleted) message: %s", admres.Response.Result.Message)
+	assert.Equal(t, http.StatusOK, int(admres.Response.Result.Code))
+	assert.Equal(t, "Admission not found", admres.Response.Result.Message)
 }
 
 func Test_Handler_Allowed(t *testing.T) {
@@ -83,7 +84,8 @@ func Test_Handler_Allowed(t *testing.T) {
 	require.NoError(t, json.NewDecoder(res.Body).Decode(&admres))
 	require.NotNil(t, admres.Response)
 	require.NotNil(t, admres.Response.Result)
-	require.Equalf(t, http.StatusOK, int(admres.Response.Result.Code), "message: %s", admres.Response.Result.Message)
+	assert.Equal(t, http.StatusOK, int(admres.Response.Result.Code))
+	assert.Equal(t, "Nice job!", admres.Response.Result.Message)
 }
 
 func Test_Handler_Denied(t *testing.T) {
@@ -168,8 +170,7 @@ func Test_Handler_Patched(t *testing.T) {
 	require.NotNil(t, admres.Response.Result)
 	assert.Equal(t, http.StatusOK, int(admres.Response.Result.Code))
 	assert.Equal(t, "get patched", admres.Response.Result.Message)
-	require.NotEmpty(t, admres.Response.Patch)
-	require.JSONEq(t, `[{"op":"add","path":"/metadata/annotations/request-user","value":"testuser"}]`, string(admres.Response.Patch))
+	assert.JSONEq(t, `[{"op":"add","path":"/metadata/annotations/request-user","value":"testuser"}]`, string(admres.Response.Patch))
 }
 
 func newAdmissionRequest(t *testing.T, name, namespace string, admreq admissionv1.AdmissionRequest) *http.Request {
