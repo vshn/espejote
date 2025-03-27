@@ -10,6 +10,10 @@
   path: /spec/template/spec/containers/0/args/-
   value: --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
 
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --dynamic-admission-webhook-port=443
+
 # Add the volumeMount for the webhook certificates
 - op: add
   path: /spec/template/spec/containers/0/volumeMounts/-

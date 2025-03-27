@@ -1,4 +1,4 @@
-
+---
 apiVersion: espejote.io/v1alpha1
 kind: Admission
 metadata:
@@ -10,6 +10,7 @@ metadata:
     description: |
       Adds the annotation `request-user` for ConfigMap creates in the namespaces labeled admission-sample=true.
 spec:
+  mutating: true
   webhookConfiguration:
     rules:
       - apiGroups: [""]

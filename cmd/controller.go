@@ -59,6 +59,7 @@ func init() {
 	controllerCmd.Flags().Bool("enable-dynamic-admission-webhook", true, "Enable the dynamic admission webhook.")
 	controllerCmd.Flags().String("dynamic-admission-webhook-service-name", "espejote-webhook-service", "The name of the service that serves the dynamic admission webhook.")
 	controllerCmd.Flags().String("dynamic-admission-webhook-name", "espejote-dynamic-webhook", "The name of the dynamic admission webhook.")
+	controllerCmd.Flags().Int32("dynamic-admission-webhook-port", 9443, "The port the dynamic admission webhook listens on.")
 
 	controllerCmd.Flags().String("webhook-cert-path", "", "The directory that contains the webhook certificate.")
 	controllerCmd.Flags().String("webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
@@ -88,10 +89,11 @@ func runController(cmd *cobra.Command, _ []string) error {
 	enableDynamicAdmissionWebhook, edawerr := cmd.Flags().GetBool("enable-dynamic-admission-webhook")
 	dynamicAdmissionWebhookServiceName, dawsnerr := cmd.Flags().GetString("dynamic-admission-webhook-service-name")
 	dynamicAdmissionWebhookName, dawnerr := cmd.Flags().GetString("dynamic-admission-webhook-name")
+	dynamicAdmissionWebhookPort, dawperr := cmd.Flags().GetInt32("dynamic-admission-webhook-port")
 	webhookCertPath, wcperr := cmd.Flags().GetString("webhook-cert-path")
 	webhookCertName, wcnerr := cmd.Flags().GetString("webhook-cert-name")
 	webhookCertKey, wckerr := cmd.Flags().GetString("webhook-cert-key")
-	if err := multierr.Combine(jlnerr, cnerr, dawsnerr, wcperr, wcnerr, wckerr, edawerr, dawnerr); err != nil {
+	if err := multierr.Combine(jlnerr, cnerr, dawsnerr, wcperr, wcnerr, wckerr, edawerr, dawnerr, dawperr); err != nil {
 		return fmt.Errorf("failed to get flags: %w", err)
 	}
 
@@ -180,7 +182,7 @@ func runController(cmd *cobra.Command, _ []string) error {
 			MutatingWebhookName:   dynamicAdmissionWebhookName,
 			ValidatingWebhookName: dynamicAdmissionWebhookName,
 
-			WebhookPort:         9443, // Controller-runtime default
+			WebhookPort:         dynamicAdmissionWebhookPort,
 			WebhookServiceName:  dynamicAdmissionWebhookServiceName,
 			ControllerNamespace: controllerNamespace,
 		}).SetupWithManager(mgr); err != nil {

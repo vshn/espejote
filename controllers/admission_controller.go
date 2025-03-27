@@ -27,7 +27,7 @@ type AdmissionReconciler struct {
 	MutatingWebhookName   string
 	ValidatingWebhookName string
 
-	WebhookPort         int
+	WebhookPort         int32
 	WebhookServiceName  string
 	ControllerNamespace string
 }
@@ -78,7 +78,7 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ reconcile.Request
 					Name:      r.WebhookServiceName,
 					Namespace: r.ControllerNamespace,
 					Path:      ptr.To(path.Join("/dynamic", admission.Namespace, admission.Name)),
-					Port:      ptr.To(int32(r.WebhookPort)),
+					Port:      ptr.To(r.WebhookPort),
 				},
 			},
 
@@ -110,7 +110,7 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ reconcile.Request
 					Name:      r.WebhookServiceName,
 					Namespace: r.ControllerNamespace,
 					Path:      ptr.To(path.Join("/dynamic", admission.Namespace, admission.Name)),
-					Port:      ptr.To(int32(r.WebhookPort)),
+					Port:      ptr.To(r.WebhookPort),
 				},
 			},
 
