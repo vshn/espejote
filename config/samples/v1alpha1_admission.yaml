@@ -1,0 +1,34 @@
+---
+apiVersion: espejote.io/v1alpha1
+kind: Admission
+metadata:
+  labels:
+    app.kubernetes.io/name: espejote
+    app.kubernetes.io/managed-by: kustomize
+  name: admission-sample
+  annotations:
+    description: |
+      Adds the annotation `request-user` for ConfigMap create requests.
+spec:
+  mutating: true
+  webhookConfiguration:
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["*"]
+        operations: ["CREATE"]
+        resources: ["configmaps"]
+  template: |
+    local esp = import 'espejote.libsonnet';
+    local admission = esp.ALPHA.admission;
+
+    local user = admission.admissionRequest().userInfo.username;
+    local obj = admission.admissionRequest().object;
+
+    if std.get(obj.metadata, 'annotations') == null then
+      admission.patched('added user annotation', [
+        admission.jsonPatchOp('add', '/metadata/annotations', { 'request-user': user }),
+      ])
+    else
+      admission.patched('added user annotation', [
+        admission.jsonPatchOp('add', '/metadata/annotations/request-user', user),
+      ])

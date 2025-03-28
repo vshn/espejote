@@ -21,11 +21,6 @@ spec:
       bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
       tlsConfig:
         insecureSkipVerify: true
-      metricRelabelings:
-      - action: keep
-        regex: openshift_upgrade_controller_.+
-        sourceLabels:
-        - __name__
   selector:
     matchLabels:
       control-plane: controller-manager
