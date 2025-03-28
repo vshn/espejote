@@ -189,6 +189,7 @@ type EspejoteErrorType string
 
 const (
 	ServiceAccountError          EspejoteErrorType = "ServiceAccountError"
+	WaitingForCacheSync          EspejoteErrorType = "WaitingForCacheSync"
 	DependencyConfigurationError EspejoteErrorType = "DependencyConfigurationError"
 	TemplateError                EspejoteErrorType = "TemplateError"
 	ApplyError                   EspejoteErrorType = "ApplyError"
@@ -198,6 +199,17 @@ const (
 type EspejoteError struct {
 	error
 	Type EspejoteErrorType
+}
+
+// ErrorIsTransient returns true if the error is transient and the reconciliation should be retried without an error log and backoff.
+func ErrorIsTransient(err error) bool {
+	var espejoteErr EspejoteError
+	return errors.As(err, &espejoteErr) && espejoteErr.Transient()
+}
+
+// Transient returns true if the error is transient and the reconciliation should be retried without an error log and backoff.
+func (e EspejoteError) Transient() bool {
+	return e.Type == WaitingForCacheSync
 }
 
 func (e EspejoteError) Error() string {
@@ -215,7 +227,15 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 	reconciles.WithLabelValues(req.NamespacedName.Name, req.NamespacedName.Namespace, req.TriggerInfo.TriggerName).Inc()
 
 	res, recErr := r.reconcile(ctx, req)
-	return res, multierr.Combine(recErr, r.recordReconcileErr(ctx, req, recErr))
+
+	result := res
+	resultErr := recErr
+	if ErrorIsTransient(recErr) {
+		result = ctrl.Result{Requeue: true}
+		resultErr = nil
+	}
+
+	return result, multierr.Combine(resultErr, r.recordReconcileErr(ctx, req, recErr))
 }
 
 func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) (ctrl.Result, error) {
@@ -240,7 +260,7 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 		return ctrl.Result{}, newEspejoteError(err, DependencyConfigurationError)
 	}
 	if !ready {
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{}, newEspejoteError(ErrCacheNotReady, WaitingForCacheSync)
 	}
 
 	rendered, err := (&Renderer{
@@ -302,6 +322,7 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 
 // recordReconcileErr records the given error as an event on the ManagedResource and updates the status accordingly.
 // If the error is nil, the status is updated to "Ready".
+// If the error is a transient error, it is not recorded as an event or metric.
 func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, req Request, recErr error) error {
 	var managedResource espejotev1alpha1.ManagedResource
 	if err := r.Get(ctx, req.NamespacedName, &managedResource); err != nil {
@@ -318,14 +339,17 @@ func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, req 
 	}
 
 	errType := "ReconcileError"
+	transient := false
 	var espejoteErr EspejoteError
 	if errors.As(recErr, &espejoteErr) {
 		errType = string(espejoteErr.Type)
+		transient = espejoteErr.Transient()
 	}
 
-	r.Recorder.Eventf(&managedResource, "Warning", errType, "Reconcile error: %s", recErr.Error())
-
-	reconcileErrors.WithLabelValues(req.NamespacedName.Name, req.NamespacedName.Namespace, req.TriggerInfo.TriggerName, errType).Inc()
+	if !transient {
+		r.Recorder.Eventf(&managedResource, "Warning", errType, "Reconcile error: %s", recErr.Error())
+		reconcileErrors.WithLabelValues(req.NamespacedName.Name, req.NamespacedName.Namespace, req.TriggerInfo.TriggerName, errType).Inc()
+	}
 
 	if managedResource.Status.Status == errType {
 		return nil
@@ -474,8 +498,13 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 
 // Setup sets up the controller with the Manager.
 func (r *ManagedResourceReconciler) Setup(cfg *rest.Config, mgr ctrl.Manager) error {
+	return r.SetupWithName(cfg, mgr, "managed_resource")
+}
+
+// SetupWithName sets up the controller with the Manager and a name for the global metrics registry.
+func (r *ManagedResourceReconciler) SetupWithName(cfg *rest.Config, mgr ctrl.Manager, name string) error {
 	c, err := builder.TypedControllerManagedBy[Request](mgr).
-		Named("managed_resource").
+		Named(name).
 		Watches(&espejotev1alpha1.ManagedResource{}, handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, a client.Object) []Request {
 			return []Request{
 				{
@@ -776,6 +805,9 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 
 	go c.Start(ctx)
 	go func() {
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
 		success := c.WaitForCacheSync(ctx)
 		dc.cacheReadyMux.Lock()
 		defer dc.cacheReadyMux.Unlock()

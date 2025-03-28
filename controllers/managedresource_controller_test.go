@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,7 +45,8 @@ import (
 // Tests can use the `testutil.TmpNamespace()“ function to create a new namespace that is guaranteed to not conflict with namespaces of other tests.
 // Special care must be taken when modifying cluster scoped resources, for example by prefixing the resource names with the name returned from `testutil.TmpNamespace()`.
 func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
-	log.SetLogger(testr.New(t))
+	t.Parallel()
+
 	scheme, cfg := testutil.SetupEnvtestEnv(t)
 	c, err := client.NewWithWatch(cfg, client.Options{
 		Scheme: scheme,
@@ -61,6 +63,7 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		Metrics: metricserver.Options{
 			BindAddress: ":" + strconv.Itoa(metricsPort),
 		},
+		Logger: testr.New(t),
 	})
 	require.NoError(t, err)
 	subject := &ManagedResourceReconciler{
@@ -1172,6 +1175,123 @@ espejote_reconciles_total{managedresource="test",namespace="`+testns+`",trigger=
 		require.NoError(t, err)
 		assert.Empty(t, lintproblem)
 	})
+}
+
+func Test_ManagedResourceReconciler_Reconcile_SlowClient(t *testing.T) {
+	t.Parallel()
+
+	scheme, cfg := testutil.SetupEnvtestEnv(t)
+	c, err := client.NewWithWatch(cfg, client.Options{
+		Scheme: scheme,
+	})
+	require.NoError(t, err)
+	slowC := &slowClient{
+		WithWatch: c,
+		Sleep:     100 * time.Millisecond,
+	}
+
+	ctx := log.IntoContext(t.Context(), testr.New(t))
+
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme: scheme,
+		Logger: testr.New(t),
+	})
+	require.NoError(t, err)
+	subject := &ManagedResourceReconciler{
+		Client:                  slowC,
+		Scheme:                  slowC.Scheme(),
+		ControllerLifetimeCtx:   ctx,
+		JsonnetLibraryNamespace: "jsonnetlibs",
+		Recorder:                mgr.GetEventRecorderFor("managed-resource-controller"),
+	}
+	require.NoError(t, subject.SetupWithName(cfg, mgr, "slow_client"))
+
+	mgrCtx, mgrCancel := context.WithCancel(ctx)
+	t.Cleanup(mgrCancel)
+	go func() {
+		require.NoError(t, mgr.Start(mgrCtx))
+	}()
+
+	t.Run("test waiting for sync before becoming ready", func(t *testing.T) {
+		t.Parallel()
+
+		testns := testutil.TmpNamespace(t, c)
+
+		contextCM := &corev1.ConfigMap{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "v1",
+				Kind:       "ConfigMap",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "context",
+				Namespace: testns,
+			},
+			Data: map[string]string{
+				"test": "test",
+			},
+		}
+		require.NoError(t, c.Patch(ctx, contextCM, client.Apply, client.FieldOwner("test")))
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Context: []espejotev1alpha1.ManagedResourceContext{{
+					Name: "context",
+					Resource: espejotev1alpha1.ContextResource{
+						APIVersion: "v1",
+						Kind:       "ConfigMap",
+						MatchNames: []string{"context"},
+					},
+				}},
+				Template: `null`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			assert.Equal(t, "WaitingForCacheSync", mr.Status.Status)
+		}, 5*time.Second, 10*time.Millisecond)
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			assert.Equal(t, "Ready", mr.Status.Status)
+		}, 5*time.Second, 10*time.Millisecond)
+
+		var events corev1.EventList
+		require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorFor(mr.Name)))
+		require.Len(t, events.Items, 0, "waiting for caches should not create error events")
+	})
+}
+
+type slowClient struct {
+	client.WithWatch
+
+	Sleep time.Duration
+}
+
+func (s *slowClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	time.Sleep(s.Sleep)
+	return s.WithWatch.Get(ctx, key, obj, opts...)
+}
+
+func (s *slowClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	time.Sleep(s.Sleep)
+	return s.WithWatch.List(ctx, list, opts...)
+}
+
+func (s *slowClient) Watch(ctx context.Context, list client.ObjectList, opts ...client.ListOption) (watch.Interface, error) {
+	i, err := s.WithWatch.Watch(ctx, list, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return watch.Filter(i, func(in watch.Event) (out watch.Event, keep bool) {
+		time.Sleep(s.Sleep)
+		return in, true
+	}), nil
 }
 
 // metricHasLabelPair returns a function that checks if a metric has a label pair with the given name and value.
