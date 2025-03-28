@@ -6,6 +6,7 @@ toolchain go1.24.1
 
 require (
 	github.com/DmitriyVTitov/size v1.5.0
+	github.com/evanphx/json-patch/v5 v5.9.11
 	github.com/fatih/color v1.18.0
 	github.com/go-logr/logr v1.4.2
 	github.com/google/go-jsonnet v0.20.0
@@ -35,7 +36,6 @@ require (
 	github.com/elastic/crd-ref-docs v0.1.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
 	github.com/evanphx/json-patch v5.9.0+incompatible // indirect
-	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
