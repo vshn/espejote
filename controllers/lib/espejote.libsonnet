@@ -29,10 +29,20 @@ local admission = {
     value: value,
   },
 
+  // assertPatch applies a JSON patch to an object and asserts that the patch was successful.
+  // It expects an array of JSONPatch operations.
+  // Returns the patch.
+  assertPatch: function(patches, obj=self.admissionRequest().object)
+    assert std.isArray(patches) : 'patches must be an array, is: %s' % std.manifestJsonMinified(patches);
+    local applied = std.native('__internal_use_espejote_lib_function_apply_json_patch')(obj, patches);
+    assert applied[1] == null : 'JSON patch failed: %s' % applied[1];
+    patches,
+
   // patched returns an admission response that allows the operation and includes a list of JSON patches.
   // The patches should be a list of JSONPatch operations.
   // JSONPatch operations can be created using the jsonPatchOp() function.
   // The patches are applied in order.
+  // It is highly recommended to use assertPatch() to test the patches before returning them.
   patched: function(msg, patches) {
     assert std.isString(msg) : 'msg must be a string, is: %s' % std.manifestJsonMinified(msg),
     assert std.isArray(patches) : 'patches must be an array, is: %s' % std.manifestJsonMinified(patches),

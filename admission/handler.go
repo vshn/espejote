@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/http"
 
+	jsonpatchapply "github.com/evanphx/json-patch/v5"
 	"github.com/google/go-jsonnet"
+	"github.com/google/go-jsonnet/ast"
 	"github.com/prometheus/client_golang/prometheus"
 	"gomodules.xyz/jsonpatch/v2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -114,6 +116,7 @@ func (h *handler) handle(ctx context.Context, admissionKey types.NamespacedName,
 
 	jvm := jsonnet.MakeVM()
 	jvm.Importer(controllers.FromClientImporter(h.Client, adm.GetNamespace(), h.JsonnetLibraryNamespace))
+	jvm.NativeFunction(applyPatchNativeFunction)
 
 	reqJson, err := json.Marshal(req)
 	if err != nil {
@@ -144,4 +147,62 @@ func (ar admissionResponse) toAdmissionResponse() webhook.AdmissionResponse {
 	war := admission.ValidationResponse(ar.Allowed, ar.Message)
 	war.Patches = append(war.Patches, ar.Patches...)
 	return war
+}
+
+// applyPatchNativeFunction is a native function that applies a JSON patch to a JSON object.
+// It uses the same JSON patch library as Kubernetes.
+// The function signature is: `__internal_use_espejote_lib_function_apply_json_patch(obj, patch)`.
+// The `obj` argument is the JSON object to patch. This can be any JSON-serializable data type.
+// The `patch` argument is the JSON patch to apply.
+// The function returns a tuple with the patched object and an error message, if any.
+// The function never returns an error. The caller can check the error message to see if an error occurred.
+var applyPatchNativeFunction = &jsonnet.NativeFunction{
+	Name:   "__internal_use_espejote_lib_function_apply_json_patch",
+	Params: ast.Identifiers{"obj", "patch"},
+	Func: wrapJsonnetFunctionErrorToTuple(func(args []any) (any, error) {
+		if len(args) != 2 {
+			return nil, fmt.Errorf("expected 2 arguments, got %d", len(args))
+		}
+		obj := args[0]
+		patch, ok := args[1].([]any)
+		if !ok {
+			return nil, fmt.Errorf("expected array, got %T", args[1])
+		}
+
+		rawObj, err := json.Marshal(obj)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal object: %w", err)
+		}
+		rawPatch, err := json.Marshal(patch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal patch: %w", err)
+		}
+
+		ops, err := jsonpatchapply.DecodePatch(rawPatch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode patch: %w", err)
+		}
+		patchedObj, err := ops.Apply(rawObj)
+		if err != nil {
+			return nil, fmt.Errorf("failed to apply patch: %w", err)
+		}
+
+		var patched any
+		if err := json.Unmarshal(patchedObj, &patched); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal patched object: %w", err)
+		}
+
+		return patched, nil
+	}),
+}
+
+// wrapJsonnetFunctionErrorToTuple wraps a function that returns a single value and an error into a function that returns a tuple [ret, error message] and never returns an error.
+func wrapJsonnetFunctionErrorToTuple(f func([]any) (any, error)) func([]any) (any, error) {
+	return func(args []any) (any, error) {
+		ret, err := f(args)
+		if err != nil {
+			return []any{ret, err.Error()}, nil
+		}
+		return []any{ret, nil}, nil
+	}
 }
