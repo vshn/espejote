@@ -11,7 +11,7 @@
 [id="{anchor_prefix}-espejote-io-v1alpha1"]
 === espejote.io/v1alpha1
 
-Package v1alpha1 contains API Schema definitions for the managedupgrade v1alpha1 API group
+Package v1alpha1 contains API Schema definitions for the espejote.io v1alpha1 API group
 
 .Resource Types
 - xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-admission[$$Admission$$]

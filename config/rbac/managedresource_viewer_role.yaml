@@ -1,15 +1,17 @@
-# permissions for end users to view managedresources.
+# This rule is not used by the project espejote itself.
+# It is provided to allow the cluster admin to help manage permissions for users.
+#
+# Grants read-only access to espejote.io resources.
+# This role is intended for users who need visibility into these resources
+# without permissions to modify them. It is ideal for monitoring purposes and limited-access viewing.
+
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:
-    app.kubernetes.io/name: clusterrole
-    app.kubernetes.io/instance: upgradesuspensionwindow-viewer-role
-    app.kubernetes.io/component: rbac
-    app.kubernetes.io/created-by: espejote
-    app.kubernetes.io/part-of: espejote
+    app.kubernetes.io/name: espejote
     app.kubernetes.io/managed-by: kustomize
-  name: upgradesuspensionwindow-viewer-role
+  name: managedresource-viewer-role
 rules:
 - apiGroups:
   - espejote.io

@@ -11,12 +11,12 @@ metadata:
   labels:
     app.kubernetes.io/name: espejote
     app.kubernetes.io/managed-by: kustomize
-  name: managedresource-editor-role
+  name: admission-editor-role
 rules:
 - apiGroups:
   - espejote.io
   resources:
-  - managedresources
+  - admissions
   verbs:
   - create
   - delete
@@ -28,6 +28,6 @@ rules:
 - apiGroups:
   - espejote.io
   resources:
-  - managedresources/status
+  - admissions/status
   verbs:
   - get
