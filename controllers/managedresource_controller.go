@@ -442,6 +442,26 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 		stop:            cancel,
 		watchConfigHash: configHash,
 	}
+	for _, con := range mr.Spec.Context {
+		if con.Resource.APIVersion == "" {
+			return nil, fmt.Errorf("context %q has no resource", con.Name)
+		}
+
+		dc, err := r.newCacheForResourceAndRESTClient(cctx, con.Resource, rc, mr.GetNamespace())
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to create cache for resource %q: %w", con.Name, err)
+		}
+
+		ci.contextCaches[con.Name] = dc
+
+		// We only allow querying objects with existing informers
+		if _, err := dc.cache.GetInformer(cctx, dc.target); err != nil {
+			cancel()
+			return nil, err
+		}
+	}
+
 	for _, trigger := range mr.Spec.Triggers {
 		if trigger.Interval.Duration != 0 {
 			if err := r.setupIntervalTrigger(cctx, trigger.Interval.Duration, k, trigger.Name); err != nil {
@@ -451,39 +471,30 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 			continue
 		}
 
-		if trigger.WatchResource.APIVersion == "" {
-			return nil, fmt.Errorf("trigger %q has no watch resource or interval", trigger.Name)
+		var defCache *definitionCache
+		if trigger.WatchContextResource.Name != "" {
+			dc, ok := ci.contextCaches[trigger.WatchContextResource.Name]
+			if !ok {
+				cancel()
+				return nil, fmt.Errorf("context %q not found for trigger %q", trigger.WatchContextResource.Name, trigger.Name)
+			}
+			defCache = dc
+		} else {
+			if trigger.WatchResource.APIVersion == "" {
+				return nil, fmt.Errorf("trigger %q has no watch resource or interval", trigger.Name)
+			}
+
+			dc, err := r.newCacheForResourceAndRESTClient(cctx, trigger.WatchResource, rc, mr.GetNamespace())
+			if err != nil {
+				cancel()
+				return nil, fmt.Errorf("failed to create cache for trigger %q: %w", trigger.Name, err)
+			}
+			defCache = dc
 		}
 
-		watchTarget, dc, err := r.newCacheForResourceAndRESTClient(cctx, trigger.WatchResource, rc, mr.GetNamespace())
-		if err != nil {
-			cancel()
-			return nil, fmt.Errorf("failed to create cache for trigger %q: %w", trigger.Name, err)
-		}
+		ci.triggerCaches[trigger.Name] = defCache
 
-		ci.triggerCaches[trigger.Name] = dc
-
-		if err := r.controller.Watch(source.TypedKind(dc.cache, client.Object(watchTarget), handler.TypedEnqueueRequestsFromMapFunc(staticMapFunc(client.ObjectKeyFromObject(&mr), trigger.Name)))); err != nil {
-			cancel()
-			return nil, err
-		}
-	}
-
-	for _, con := range mr.Spec.Context {
-		if con.Resource.APIVersion == "" {
-			return nil, fmt.Errorf("context %q has no resource", con.Name)
-		}
-
-		watchTarget, dc, err := r.newCacheForResourceAndRESTClient(cctx, con.Resource, rc, mr.GetNamespace())
-		if err != nil {
-			cancel()
-			return nil, fmt.Errorf("failed to create cache for resource %q: %w", con.Name, err)
-		}
-
-		ci.contextCaches[con.Name] = dc
-
-		// We only allow querying objects with existing informers
-		if _, err := dc.cache.GetInformer(cctx, watchTarget); err != nil {
+		if err := r.controller.Watch(source.TypedKind(defCache.cache, client.Object(defCache.target), handler.TypedEnqueueRequestsFromMapFunc(staticMapFunc(client.ObjectKeyFromObject(&mr), trigger.Name)))); err != nil {
 			cancel()
 			return nil, err
 		}
@@ -735,7 +746,7 @@ func (r *ManagedResourceReconciler) restConfigForManagedResource(ctx context.Con
 
 // newCacheForResourceAndRESTClient creates a new cache for the given ClusterResource and REST client.
 // The cache starts syncing in the background and is ready when CacheReady() is true on the returned cache.
-func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context.Context, cr espejotev1alpha1.ClusterResource, rc *rest.Config, defaultNamespace string) (*unstructured.Unstructured, *definitionCache, error) {
+func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context.Context, cr espejotev1alpha1.ClusterResource, rc *rest.Config, defaultNamespace string) (*definitionCache, error) {
 	watchTarget := &unstructured.Unstructured{}
 	watchTarget.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   cr.GetGroup(),
@@ -745,7 +756,7 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 
 	isNamespaced, err := apiutil.IsObjectNamespaced(watchTarget, r.Scheme, r.mapper)
 	if err != nil {
-		return watchTarget, nil, fmt.Errorf("failed to determine if watch target %q is namespaced: %w", cr, err)
+		return nil, fmt.Errorf("failed to determine if watch target %q is namespaced: %w", cr, err)
 	}
 
 	var sel []fields.Selector
@@ -760,7 +771,7 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 	if cr.GetLabelSelector() != nil {
 		s, err := metav1.LabelSelectorAsSelector(cr.GetLabelSelector())
 		if err != nil {
-			return watchTarget, nil, fmt.Errorf("failed to parse label selector for trigger %q: %w", cr, err)
+			return nil, fmt.Errorf("failed to parse label selector for trigger %q: %w", cr, err)
 		}
 		lblSel = s
 	}
@@ -794,7 +805,7 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 		NewInformer: filterInf,
 	})
 	if err != nil {
-		return watchTarget, nil, fmt.Errorf("failed to create cache for trigger %q: %w", cr, err)
+		return nil, fmt.Errorf("failed to create cache for trigger %q: %w", cr, err)
 	}
 
 	dc := &definitionCache{
@@ -819,7 +830,7 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 		}
 	}()
 
-	return watchTarget, dc, nil
+	return dc, nil
 }
 
 // setupIntervalTrigger sets up a trigger that fires every interval.

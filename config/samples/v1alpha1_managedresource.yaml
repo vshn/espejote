@@ -12,15 +12,6 @@ metadata:
       If the reconcile was triggered by a trigger as defined in `triggers` it only renders the required config map.
       If the trigger is unknown or the managed resource itself was changed all config maps are rendered and applied.
 spec:
-  triggers:
-  - name: namespace
-    watchResource:
-      apiVersion: v1
-      kind: Namespace
-      labelSelector:
-        matchExpressions:
-        - key: managedresource-sample.espejote.io/inject-cm
-          operator: Exists
   context:
   - name: namespaces
     resource:
@@ -30,6 +21,10 @@ spec:
         matchExpressions:
         - key: managedresource-sample.espejote.io/inject-cm
           operator: Exists
+  triggers:
+  - name: namespace
+    watchContextResource:
+      name: namespaces
   template: |
     local esp = import "espejote.libsonnet";
     local samplelib = import "jsonnetlibrary-sample/sample.libsonnet";

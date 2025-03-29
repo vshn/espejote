@@ -172,6 +172,80 @@ if esp.triggerName() == "ns" then [{
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
+	t.Run("reconcile from added watch resource trigger", func(t *testing.T) {
+		t.Parallel()
+
+		testns := testutil.TmpNamespace(t, c)
+
+		res := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Context: []espejotev1alpha1.ManagedResourceContext{{
+					Name: "configmaps",
+					Resource: espejotev1alpha1.ContextResource{
+						APIVersion:  "v1",
+						Kind:        "ConfigMap",
+						IgnoreNames: []string{"collected"},
+					},
+				}},
+				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
+					{
+						Name: "configmap",
+						WatchContextResource: espejotev1alpha1.WatchContextResource{
+							Name: "configmaps",
+						},
+					},
+				},
+				Template: `
+local esp = import "espejote.libsonnet";
+local trigger = esp.triggerData();
+
+[{
+  apiVersion: 'v1',
+  kind: 'ConfigMap',
+  metadata: {
+    name: 'collected',
+  },
+  data: {
+    collected: std.manifestJsonMinified(std.map(function(cm) cm.metadata.name, esp.context().configmaps)),
+  },
+}]
+				`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, res))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "collected"}, &cm))
+
+			var cms []string
+			require.NoError(t, json.Unmarshal([]byte(cm.Data["collected"]), &cms))
+			assert.ElementsMatch(t, []string{}, cms)
+		}, 5*time.Second, 100*time.Millisecond)
+
+		for i := range 3 {
+			cm := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test" + strconv.Itoa(i),
+					Namespace: testns,
+				},
+			}
+			require.NoError(t, c.Create(ctx, cm))
+		}
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "collected"}, &cm))
+
+			var cms []string
+			require.NoError(t, json.Unmarshal([]byte(cm.Data["collected"]), &cms))
+			assert.ElementsMatch(t, []string{"test0", "test1", "test2"}, cms)
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
 	t.Run("reconfigure filtered contexts", func(t *testing.T) {
 		t.Parallel()
 
