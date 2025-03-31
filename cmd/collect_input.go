@@ -120,20 +120,30 @@ func (rcc *collectInputCommandConfig) runCollectInput(cmd *cobra.Command, args [
 }
 
 func collectInput(ctx context.Context, c client.Client, mr espejotev1alpha1.ManagedResource, renderNamespace string) (RenderInput, error) {
-
-	triggerCfgs := map[string]espejotev1alpha1.ManagedResourceTrigger{}
-	for _, trigger := range mr.Spec.Triggers {
-		if _, ok := triggerCfgs[trigger.Name]; ok {
-			return RenderInput{}, fmt.Errorf("duplicate trigger name: %s", trigger.Name)
-		}
-		triggerCfgs[trigger.Name] = trigger
-	}
 	contextCfgs := map[string]espejotev1alpha1.ManagedResourceContext{}
 	for _, context := range mr.Spec.Context {
 		if _, ok := contextCfgs[context.Name]; ok {
 			return RenderInput{}, fmt.Errorf("duplicate context name: %s", context.Name)
 		}
 		contextCfgs[context.Name] = context
+	}
+	triggerCfgs := map[string]espejotev1alpha1.ManagedResourceTrigger{}
+	for _, trigger := range mr.Spec.Triggers {
+		if _, ok := triggerCfgs[trigger.Name]; ok {
+			return RenderInput{}, fmt.Errorf("duplicate trigger name: %s", trigger.Name)
+		}
+		if trigger.WatchContextResource.Name != "" {
+			cfg, ok := contextCfgs[trigger.WatchContextResource.Name]
+			if !ok {
+				return RenderInput{}, fmt.Errorf("trigger %q references unknown context %q", trigger.Name, trigger.WatchContextResource.Name)
+			}
+			triggerCfgs[trigger.Name] = espejotev1alpha1.ManagedResourceTrigger{
+				Name:          trigger.Name,
+				WatchResource: espejotev1alpha1.TriggerWatchResource(cfg.Resource),
+			}
+			continue
+		}
+		triggerCfgs[trigger.Name] = trigger
 	}
 	readerForTrigger := func(triggerName string) (client.Reader, error) {
 		sel, err := objectSelectorForClusterResource(c, triggerCfgs[triggerName].WatchResource, mr.Namespace)
@@ -146,6 +156,8 @@ func collectInput(ctx context.Context, c client.Client, mr espejotev1alpha1.Mana
 	triggers := []RenderInputTrigger{{}}
 	tColErrs := []error{}
 	for _, trigger := range mr.Spec.Triggers {
+		trigger = triggerCfgs[trigger.Name]
+
 		if trigger.Interval.Duration != 0 {
 			triggers = append(triggers, RenderInputTrigger{Name: trigger.Name})
 			continue

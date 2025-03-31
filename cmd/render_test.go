@@ -58,29 +58,47 @@ func Test_runRender_Cluster(t *testing.T) {
 	}
 	require.NoError(t, cli.Create(t.Context(), lib))
 
-	out := new(bytes.Buffer)
-	cmd := NewRenderCommand(func() (*rest.Config, error) { return restCfg, nil })
-	cmd.SetArgs([]string{"testdata/render_cluster/managed_resource.yaml", "-n", testns})
-	cmd.SetOut(out)
-	require.NoError(t, cmd.Execute())
+	for _, file := range []string{
+		"testdata/render_cluster/managed_resource.yaml",
+		"testdata/render_cluster/managed_resource_referenced_context.yaml",
+	} {
+		t.Run(file, func(t *testing.T) {
+			t.Parallel()
 
-	expected := strings.ReplaceAll(requireReadFile(t, "testdata/render_cluster/golden.yaml"), "NAMESPACE", testns) // Replace the generated namespace name
-	require.Equal(t, expected, out.String())
+			out := new(bytes.Buffer)
+			cmd := NewRenderCommand(func() (*rest.Config, error) { return restCfg, nil })
+			cmd.SetArgs([]string{file, "-n", testns})
+			cmd.SetOut(out)
+			require.NoError(t, cmd.Execute())
+
+			expected := strings.ReplaceAll(requireReadFile(t, "testdata/render_cluster/golden.yaml"), "NAMESPACE", testns) // Replace the generated namespace name
+			require.Equal(t, expected, out.String())
+		})
+	}
 }
 
 func Test_runRender_InputFile(t *testing.T) {
 	t.Parallel()
 
-	out := new(bytes.Buffer)
-	cmd := NewRenderCommand(func() (*rest.Config, error) { return nil, errors.New("should not connect to cluster") })
-	cmd.SetArgs([]string{"testdata/render_inputs/managed_resource.yaml", "--input", "testdata/render_inputs/input1.yaml"})
-	cmd.SetOut(out)
-	require.NoError(t, cmd.Execute())
+	for _, file := range []string{
+		"testdata/render_inputs/managed_resource.yaml",
+		"testdata/render_inputs/managed_resource_referenced_context.yaml",
+	} {
+		t.Run(file, func(t *testing.T) {
+			t.Parallel()
 
-	// Regenerate with:
-	// $ go run . render cmd/testdata/render_inputs/managed_resource.yaml --input cmd/testdata/render_inputs/input1.yaml > cmd/testdata/render_inputs/input1_golden.yaml
-	expected := requireReadFile(t, "testdata/render_inputs/input1_golden.yaml")
-	require.Equal(t, expected, out.String())
+			out := new(bytes.Buffer)
+			cmd := NewRenderCommand(func() (*rest.Config, error) { return nil, errors.New("should not connect to cluster") })
+			cmd.SetArgs([]string{file, "--input", "testdata/render_inputs/input1.yaml"})
+			cmd.SetOut(out)
+			require.NoError(t, cmd.Execute())
+
+			// Regenerate with:
+			// $ go run . render cmd/testdata/render_inputs/managed_resource.yaml --input cmd/testdata/render_inputs/input1.yaml > cmd/testdata/render_inputs/input1_golden.yaml
+			expected := requireReadFile(t, "testdata/render_inputs/input1_golden.yaml")
+			require.Equal(t, expected, out.String())
+		})
+	}
 }
 
 func requireReadFile(t *testing.T, path string) string {
