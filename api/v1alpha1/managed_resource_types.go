@@ -88,6 +88,52 @@ type ManagedResourceTrigger struct {
 	// `local esp = import "espejote.libsonnet"; esp.triggerType() == esp.TriggerTypeWatchResource` will be true if the render was triggered by a definition in this block.
 	// +optional
 	WatchResource TriggerWatchResource `json:"watchResource,omitempty"`
+
+	// WatchContextResource works the same as WatchResource, but it uses and already existing context resource.
+	// This is useful when you require both full (when the template changes) and partial (a context resource changes) reconciliation of the same resource.
+	// Check the example below. Both a context resource and a trigger are defined. If the trigger is not known in the template all network policies are reconciled.
+	// If the trigger is known, only the network policies that match the trigger are reconciled. Using `watchContextResource` allows this without having to define the same resource again.
+	//
+	//   apiVersion: espejote.io/v1alpha1
+	//   kind: ManagedResource
+	//   metadata:
+	//     name: naemspace-default-netpol
+	//     annotations:
+	//       description: |
+	//         Injects a default network policy into every namespace not labeled `netpol.example.com/no-default`.
+	//   spec:
+	//     context:
+	//     - name: namespaces
+	//       resource:
+	//         apiVersion: v1
+	//         kind: Namespace
+	//         labelSelector:
+	//           matchExpressions:
+	//           - key: netpol.example.com/no-default
+	//             operator: DoesNotExist
+	//     triggers:
+	//     - name: namespace
+	//       watchContextResource:
+	//         name: namespaces
+	//     template: |
+	//       local esp = import 'espejote.libsonnet';
+	//
+	//       local netpolForNs = function(ns) {
+	//         [...]
+	//       };
+	//
+	//       if esp.triggerName() == 'namespace' then [
+	//         netpolForNs(esp.triggerData().resource),
+	//       ] else [
+	//         netpolForNs(ns)
+	//         for ns in esp.context().namespaces
+	//       ]
+	WatchContextResource WatchContextResource `json:"watchContextResource,omitempty"`
+}
+
+type WatchContextResource struct {
+	// Name is the name of the context definition used when creating this trigger.
+	Name string `json:"name,omitempty"`
 }
 
 // +kubebuilder:object:generate=false
