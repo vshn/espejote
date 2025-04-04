@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/fatih/color"
 	"github.com/google/go-jsonnet"
 	"github.com/spf13/cobra"
 	"go.uber.org/multierr"
@@ -33,10 +32,6 @@ import (
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
 	"github.com/vshn/espejote/controllers"
 )
-
-var yellow = color.New(color.FgYellow, color.Bold).SprintFunc()
-var bgBlue = color.New(color.BgBlue, color.Bold).SprintFunc()
-var bold = color.New(color.Bold).SprintFunc()
 
 func init() {
 	RootCmd.AddCommand(NewRenderCommand(ctrl.GetConfig))

@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/fatih/color"
 	"github.com/spf13/cobra/doc"
 	"github.com/vshn/espejote/cmd"
 )
@@ -14,8 +13,6 @@ import (
 const shellESC = "\x1b"
 
 func main() {
-	color.NoColor = false
-
 	if len(os.Args) != 2 {
 		fmt.Fprintln(os.Stderr, "Usage: genclidoc <path>")
 		os.Exit(1)

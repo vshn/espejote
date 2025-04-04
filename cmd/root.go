@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"os"
+	"sync"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
@@ -29,4 +31,25 @@ func Execute() {
 	lifetimeCtx := ctrl.SetupSignalHandler()
 
 	RootCmd.ExecuteContext(lifetimeCtx)
+}
+
+var forceColorCheck = sync.OnceFunc(func() {
+	if os.Getenv("FORCE_COLOR") != "" {
+		color.NoColor = false
+	}
+})
+
+func yellow(s string) string {
+	forceColorCheck()
+	return color.New(color.FgYellow, color.Bold).Sprint(s)
+}
+
+func bgBlue(s string) string {
+	forceColorCheck()
+	return color.New(color.BgBlue, color.Bold).Sprint(s)
+}
+
+func bold(s string) string {
+	forceColorCheck()
+	return color.New(color.Bold).Sprint(s)
 }
