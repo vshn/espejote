@@ -3,9 +3,13 @@ local trigger = std.extVar('__internal_use_espejote_lib_trigger');
 local admissionRequest = std.extVar('__internal_use_espejote_lib_admissionrequest');
 
 local admission = {
+  // admissionRequest allows access to the admission request object.
+  // This object contains information about the request, including the operation, user info, and object.
+  // Reference: https://pkg.go.dev/k8s.io/api/admission/v1#AdmissionRequest
   admissionRequest: function() admissionRequest,
 
   // allowed returns an admission response that allows the operation.
+  // Takes an optional message.
   allowed: function(msg='') {
     assert std.isString(msg) : 'msg must be a string, is: %s' % std.manifestJsonMinified(msg),
     allowed: true,
@@ -13,6 +17,7 @@ local admission = {
   },
 
   // denied returns an admission response that denies the operation.
+  // Takes an optional message.
   denied: function(msg='') {
     assert std.isString(msg) : 'msg must be a string, is: %s' % std.manifestJsonMinified(msg),
     allowed: false,
