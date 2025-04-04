@@ -32,6 +32,7 @@ build: generate manifests fmt vet $(BIN_FILENAME) ## Build manager binary
 manifests: ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	go tool sigs.k8s.io/controller-tools/cmd/controller-gen rbac:roleName=manager-role crd:generateEmbeddedObjectMeta=true webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 	go tool github.com/elastic/crd-ref-docs --config=crd-ref-docs-config.yaml --source-path=api/v1alpha1 --output-path docs/api.adoc
+	FORCE_COLOR=1 go run ./tools/genclidoc ./docs/cli
 
 .PHONY: generate
 generate: ## Generate manifests e.g. CRD, RBAC etc.
