@@ -25,10 +25,10 @@ spec:
     local obj = admission.admissionRequest().object;
 
     if std.get(obj.metadata, 'annotations') == null then
-      admission.patched('added user annotation', [
+      admission.patched('added user annotation', admission.assertPatch([
         admission.jsonPatchOp('add', '/metadata/annotations', { 'request-user': user }),
-      ])
+      ]))
     else
-      admission.patched('added user annotation', [
+      admission.patched('added user annotation', admission.assertPatch([
         admission.jsonPatchOp('add', '/metadata/annotations/request-user', user),
-      ])
+      ]))
