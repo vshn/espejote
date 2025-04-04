@@ -39,7 +39,7 @@ var bgBlue = color.New(color.BgBlue, color.Bold).SprintFunc()
 var bold = color.New(color.Bold).SprintFunc()
 
 func init() {
-	rootCmd.AddCommand(NewRenderCommand(ctrl.GetConfig))
+	RootCmd.AddCommand(NewRenderCommand(ctrl.GetConfig))
 }
 
 func NewRenderCommand(

@@ -38,7 +38,7 @@ var zapOpts = zap.Options{
 }
 
 func init() {
-	rootCmd.AddCommand(controllerCmd)
+	RootCmd.AddCommand(controllerCmd)
 
 	zapFlagSet := flag.NewFlagSet("zap", flag.ExitOnError)
 	zapOpts.BindFlags(zapFlagSet)
