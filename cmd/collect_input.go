@@ -21,7 +21,7 @@ import (
 )
 
 func init() {
-	rootCmd.AddCommand(NewCollectInputCommand(ctrl.GetConfig))
+	RootCmd.AddCommand(NewCollectInputCommand(ctrl.GetConfig))
 }
 
 func NewCollectInputCommand(

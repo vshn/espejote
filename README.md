@@ -17,6 +17,10 @@ kubectl apply -k config/default
 Espejote manages resources by server-side applying rendered Jsonnet manifests to the cluster.
 It allows fine-grained control over external context used to rendering the resources and the triggers that cause the resources to be applied.
 
+`espejote` CLI docs are available [here](./docs/cli/espejote.md).
+
 API documentation is available [here](./docs/api.adoc).
+
+`espejote.libsonnet` documentation is available [here](./docs/lib/README.md).
 
 Examples are a work in progress.
