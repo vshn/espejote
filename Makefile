@@ -31,8 +31,12 @@ build: generate manifests fmt vet $(BIN_FILENAME) ## Build manager binary
 .PHONY: manifests
 manifests: ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	go tool sigs.k8s.io/controller-tools/cmd/controller-gen rbac:roleName=manager-role crd:generateEmbeddedObjectMeta=true webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+
+.PHONY: docs
+docs: ## Generate documentation
 	go tool github.com/elastic/crd-ref-docs --config=crd-ref-docs-config.yaml --source-path=api/v1alpha1 --output-path docs/api.adoc
 	FORCE_COLOR=1 go run ./tools/genclidoc ./docs/cli
+	go tool github.com/jsonnet-libs/docsonnet controllers/lib/espejote.libsonnet -o docs/lib
 
 .PHONY: generate
 generate: ## Generate manifests e.g. CRD, RBAC etc.
@@ -49,7 +53,7 @@ vet: ## Run go vet against code
 	go vet ./...
 
 .PHONY: lint
-lint: fmt vet generate manifests ## All-in-one linting
+lint: fmt vet generate manifests docs ## All-in-one linting
 	@echo 'Checking kustomize build ...'
 	$(KUSTOMIZE) build config/crd -o /dev/null
 	$(KUSTOMIZE) build config/default -o /dev/null

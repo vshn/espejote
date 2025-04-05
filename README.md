@@ -21,4 +21,6 @@ It allows fine-grained control over external context used to rendering the resou
 
 API documentation is available [here](./docs/api.adoc).
 
+`espejote.libsonnet` documentation is available [here](./docs/lib/README.md).
+
 Examples are a work in progress.
