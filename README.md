@@ -19,8 +19,11 @@ It allows fine-grained control over external context used to rendering the resou
 
 `espejote` CLI docs are available [here](./docs/cli/espejote.md).
 
-API documentation is available [here](./docs/api.adoc).
+API (CRD) documentation is available [here](./docs/api.adoc).
 
 `espejote.libsonnet` documentation is available [here](./docs/lib/README.md).
 
-Examples are a work in progress.
+Annotated examples are available:
+- [Admission: OpenShift 4 Cluster Autoscaler Patch](./docs/annotated-examples/admission/ocp-cluster-autoscaler-patch.adoc)
+- [ManagedResource: OpenShift 4 Node Disruption Policies](./docs/annotated-examples/managedresource/node-disruption-policies.adoc)
+- We're working on more examples, stay tuned!
