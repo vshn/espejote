@@ -27,3 +27,5 @@ Annotated examples are available:
 - [Admission: OpenShift 4 Cluster Autoscaler Patch](./docs/annotated-examples/admission/ocp-cluster-autoscaler-patch.adoc)
 - [ManagedResource: OpenShift 4 Node Disruption Policies](./docs/annotated-examples/managedresource/node-disruption-policies.adoc)
 - We're working on more examples, stay tuned!
+
+The original idea and design document is available [here](https://kb.vshn.ch/oc4/references/architecture/espejote-in-cluster-templating-controller.html).
