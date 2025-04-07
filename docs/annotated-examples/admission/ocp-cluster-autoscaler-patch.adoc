@@ -1,0 +1,114 @@
+# OpenShift 4 Cluster Autoscaler Patch
+
+This example shows how to patch the OpenShift 4 Cluster Autoscaler to inject arguments, not configurable upstream, into the running pod.
+
+The Admission has no reconciliation, you need to `kubectl -n openshift-machine-api rollout restart deployment cluster-autoscaler-default` for the patch to take effect.
+
+## Manifest
+
+[source,yaml]
+----
+apiVersion: espejote.io/v1alpha1
+kind: Admission
+metadata:
+  annotations:
+    syn.tools/description: |
+      Injects autoscaler arguments to the default autoscaler pod in the openshift-machine-api namespace.
+      Arguments are taken from the a JsonnetLibrary manifest with the same name.
+
+      The patch blindly adds the arguments without trying to replace them if they already exist.
+      I debated replacing them but we won't be able to guess all upstream changes in the args array and our args parsing might fail anyways.
+      I prefer a simpler patch that fails fast to a convoluted args array merge.
+  labels:
+    app.kubernetes.io/name: autoscaler-inject-args
+  name: autoscaler-inject-args
+  namespace: openshift-machine-api <1>
+spec:
+  mutating: true <2>
+  template: |
+    local esp = import 'espejote.libsonnet';
+    local admission = esp.ALPHA.admission; <3>
+
+    local flagsToAdd = import 'autoscaler-inject-args/flags.json'; <4>
+
+    local pod = admission.admissionRequest().object; <5>
+
+    local cids = std.find('cluster-autoscaler', std.map(function(c) c.name, pod.spec.containers));
+    assert std.length(cids) == 1 : "Expected to find a single container with name 'cluster-autoscaler'";
+    local containerIndex = cids[0];
+
+    // Asserts against null.
+    // We could just add an empty array as args before the patch and don't fail but it might be better for someone to check what changed.
+    local args = std.get(pod.spec.containers[containerIndex], 'args');
+    assert std.isArray(args) : 'Expected container args to be an array, is: %s' % std.type(args);
+
+    local containerPath = '/spec/containers/%s' % containerIndex;
+    admission.patched('added autoscaler args', admission.assertPatch(std.map( <6>
+      function(f) admission.jsonPatchOp('add', containerPath + '/args/-', f), <7>
+      flagsToAdd,
+    )))
+  webhookConfiguration: <8>
+    rules: <9>
+      - apiGroups:
+          - ''
+        apiVersions:
+          - '*'
+        operations:
+          - CREATE
+        resources:
+          - pods
+    objectSelector: <10>
+      matchLabels:
+        cluster-autoscaler: default
+        k8s-app: cluster-autoscaler
+----
+<1> The namespace where the admission will be deployed.
+This is the namespace where the OpenShift 4 Cluster Autoscaler is running.
+`Admissions` only apply to their respective namespaces.
+The Controller automatically injects a namespace selector into the webhook configuration `namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: openshift-machine-api } }`.
+<2> The admission is a mutating admission, it will modify the incoming request.
+<3> The `admission` library is imported to use the helper functions for the admission.
+See xref:../../lib/README.md[espejote.libsonnet] for all available fields and functions.
+<4> The configuration is imported from a `JsonnetLibrary` manifest.
+This makes it easier to programmatically change the configuration as it does not need to be replaced in the `Admission` manifest.
+The component uses `std.manifestJson` to https://github.com/appuio/component-openshift4-nodes/blob/7622ff25731f67177b0e844c22688270196d5dc5/component/autoscaler.jsonnet#L58C25-L58C41[generate] the `flags.json` file.
+<5> The full object to be patched is available in the `admissionRequest` object.
+xref:../../lib/README.md[espejote.libsonnet] has an example of how the admission request looks like.
+<6> It is highly recommended to use `admission.assertPatch` to test the patch before sending it to the API server.
+This makes it easier to debug the patch and increases the failure metrics.
+<7> The API server expects a https://datatracker.ietf.org/doc/html/rfc6902[RFC6902 JSON Patch] to be sent.
+The `-` at the end of the JSON pointer means to add the element to the end of the array.
+<8> The webhook supports most upstream `ValidatingWebhookConfiguration` and `MutatingWebhookConfiguration` fields.
+The `Admission` controller will automatically create the webhook configuration for you.
+<9> Selects only pod create requests to be patched.
+<10> The `objectSelector` is used to further narrow down the objects to be patched.
+
+### Configuration manifest
+
+The configuration manifest is a `JsonnetLibrary` manifest that contains the flags to be injected into the OpenShift 4 Cluster Autoscaler.
+
+It is generated using the `std.manifestJson` function from Jsonnet.
+
+[source,yaml]
+----
+apiVersion: espejote.io/v1alpha1
+kind: JsonnetLibrary
+metadata:
+  labels:
+    app.kubernetes.io/name: autoscaler-inject-args
+  name: autoscaler-inject-args
+  namespace: openshift-machine-api
+spec:
+  data:
+    flags.json: |-
+      [
+          "--daemonset-eviction-for-occupied-nodes=false",
+          "--skip-nodes-with-local-storage=false"
+      ]
+----
+
+## Source
+
+- https://github.com/appuio/component-openshift4-nodes/blob/7622ff25731f67177b0e844c22688270196d5dc5/component/autoscaler.jsonnet#L10-L64[Commodore component]
+- https://github.com/appuio/component-openshift4-nodes/blob/7622ff25731f67177b0e844c22688270196d5dc5/tests/golden/autoscaling/openshift4-nodes/openshift4-nodes/autoscaler_inject_args_admission.yaml[`Admission` manifest]
+- https://github.com/appuio/component-openshift4-nodes/blob/7622ff25731f67177b0e844c22688270196d5dc5/tests/golden/autoscaling/openshift4-nodes/openshift4-nodes/autoscaler_inject_args_jsonnetlibrary.yaml[`JsonnetLibrary` manifest for the configuration]

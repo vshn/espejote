@@ -17,6 +17,15 @@ kubectl apply -k config/default
 Espejote manages resources by server-side applying rendered Jsonnet manifests to the cluster.
 It allows fine-grained control over external context used to rendering the resources and the triggers that cause the resources to be applied.
 
-API documentation is available [here](./docs/api.adoc).
+`espejote` CLI docs are available [here](./docs/cli/espejote.md).
 
-Examples are a work in progress.
+API (CRD) documentation is available [here](./docs/api.adoc).
+
+`espejote.libsonnet` documentation is available [here](./docs/lib/README.md).
+
+Annotated examples are available:
+- [Admission: OpenShift 4 Cluster Autoscaler Patch](./docs/annotated-examples/admission/ocp-cluster-autoscaler-patch.adoc)
+- [ManagedResource: OpenShift 4 Node Disruption Policies](./docs/annotated-examples/managedresource/node-disruption-policies.adoc)
+- We're working on more examples, stay tuned!
+
+The original idea and design document is available [here](https://kb.vshn.ch/oc4/references/architecture/espejote-in-cluster-templating-controller.html).

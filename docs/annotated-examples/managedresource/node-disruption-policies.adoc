@@ -1,0 +1,305 @@
+# OpenShift 4 Node Disruption Policies
+
+This example shows how to manage `spec.nodeDisruptionPolicies` in the `machineconfiguration.operator/cluster` resource of an OpenShift 4 cluster.
+
+## Manifest
+
+[source,yaml]
+----
+apiVersion: espejote.io/v1alpha1
+kind: ManagedResource
+metadata:
+  annotations:
+    syn.tools/description: | <1>
+      Manages `spec.nodeDisruptionPolicies` in the `machineconfiguration.operator/cluster` resource.
+
+      The contents of `spec.nodeDisruptionPolicies` are constructed from the
+      annotation `openshift4-nodes.syn.tools/node-disruption-policies` on all
+      non-generated MachineConfigs. We generally recommend defining very
+      specific paths for `files` disruption policies in order to avoid
+      confilicting configurations in the resulting merged config.
+
+      Any unmanaged contents of `spec.nodeDisruptionPolicies` are overwritten.
+      We explicitly execute the template when the
+      `machineconfiguration.operator/cluster` resource changes.
+
+      Generic disruption policies which are provided via Project Syn
+      parameter are provided in field `config.json` in the
+      `nodedisruptionpolicies` Espejote JsonnetLibrary resource.
+
+      NOTE: Don't configure `type: Restart` for systemd units that are managed
+      in the machineconfig resource. Doing so will cause nodes to become
+      degraded if the machineconfig is deleted.
+
+      NOTE: In general, we can't guarantee that node disruption policies
+      provided in an annotation will still be active when the machineconfig
+      is deleted. If you want to guarantee that removing a machineconfig
+      doesn't unnecessesarily reboots machines, we recommend defining
+      appropriate node disruption policies via the Project Syn hierarchy.
+  labels:
+    app.kubernetes.io/name: nodedisruptionpolicies
+  name: nodedisruptionpolicies
+  namespace: openshift-machine-config-operator
+spec:
+  applyOptions:
+    force: true <2>
+  context:
+    - name: machineconfigs <3>
+      resource:
+        apiVersion: machineconfiguration.openshift.io/v1
+        kind: MachineConfig
+        labelSelector:
+          matchExpressions:
+            - key: machineconfiguration.openshift.io/role <4>
+              operator: Exists
+  triggers:
+    - name: machineconfig <5>
+      watchContextResource:
+        name: machineconfigs
+    - name: machineconfiguration/cluster <6>
+      watchResource:
+        apiVersion: operator.openshift.io/v1
+        kind: MachineConfiguration
+    - name: jsonnetlib <7>
+      watchResource:
+        apiVersion: espejote.io/v1alpha1
+        kind: JsonnetLibrary
+        name: nodedisruptionpolicies
+        namespace: openshift-machine-config-operator
+  serviceAccountRef:
+    name: nodedisruptionpolicies-manager <8>
+  template: |
+    local esp = import 'espejote.libsonnet';
+    local ndp = import 'nodedisruptionpolicies/ndp.libsonnet';
+
+    local config = import 'nodedisruptionpolicies/config.json'; <9>
+    local machineconfigs = esp.context().machineconfigs; <10>
+
+    local render_nodedisruptionpolicies() =
+      local configs = [ ndp.get_disruption_config(mc) for mc in machineconfigs ];
+      local policies =
+        {
+          files+:
+            std.get(config, 'files', []) +
+            std.flattenArrays([ std.get(dc, 'files', []) for dc in configs ]),
+          units+:
+            std.get(config, 'units', []) +
+            std.flattenArrays([ std.get(dc, 'units', []) for dc in configs ]),
+          sshkey+: {
+            actions:
+              [ std.get(config, 'sshkey_actions', []) ] +
+              [ std.get(dc, 'sshkey', { actions: [] }).actions for dc in configs ],
+          },
+        };
+      {
+        files: ndp.remove_duplicates(
+          std.sort(policies.files, keyF=function(e) e.path),
+          'path'
+        ),
+        units: ndp.remove_duplicates(
+          std.sort(policies.units, keyF=function(e) e.name),
+          'name'
+        ),
+        sshkey: { actions: ndp.select_actions(policies.sshkey.actions) },
+      };
+
+    local res = { <11>
+      apiVersion: 'operator.openshift.io/v1',
+      kind: 'MachineConfiguration',
+      metadata: {
+        name: 'cluster',
+      },
+      spec: {
+        nodeDisruptionPolicy: render_nodedisruptionpolicies(), <12>
+      },
+    };
+
+    assert
+      std.length(res.spec.nodeDisruptionPolicy.files) <= 50 :
+      'Max supported length of nodeDisruptionPolicy.files is 50';
+    assert
+      std.length(res.spec.nodeDisruptionPolicy.units) <= 50 :
+      'Max supported length of nodeDisruptionPolicy.units is 50';
+
+    [ res ] <13>
+----
+<1> Description of the `ManagedResource`.
+We recommend a description that explains the purpose of every `ManagedResource` and how it works.
+<2> Force the `ManagedResource` to override and adopt keys already managed by other field managers.
+Espejote uses server-side apply to apply returned resources.
+See https://kubernetes.io/docs/reference/using-api/server-side-apply/#conflicts[Server-side apply - Conflicts] for more information.
+<3> Context for the `ManagedResource`.
+Always a list of zero or more resources.
+The resources is added to the `esp.context()` object and can be used in the `template`.
+The name is the object key in the context.
+<4> Further filtering of the context.
+<5> Trigger for the `ManagedResource`.
+The `ManagedResource` will be re-rendered when the resource changes.
+`watchContextResource` copies a definition from the context to the trigger and shares the cache.
+<6> Watches the managed resource itself.
+This allows reacting to changes of the managed resource and re-applying managed fields if the resource was externally modified.
+<7> Watches the configuration of the `ManagedResource` and re-renders the `ManagedResource` when the configuration changes.
+<8> Service account the `ManagedResource` uses to authenticate to the API server.
+The service account must have permissions to get, list, and watch the resources in the context and trigger.
+It must also have permissions to get and patch the returned resources.
+See <<rbac,RBAC>> for the roles required for this resource.
+<9> The configuration is stored in a `JsonnetLibrary` resource.
+This makes it easier to update the configuration without having to change the `ManagedResource`.
+The component uses `std.manifestJson` to store the configuration in the `JsonnetLibrary` resource.
+JSON is valid Jsonnet and can be directly imported.
+<10> The context is available in the `template` as `esp.context()`.
+See xref:../../lib/README.md[espejote.libsonnet] for all available fields and functions.
+<11> The resource that is applied.
+Must include the `apiVersion`, `kind`, and `metadata.name` fields.
+Optionally `metadata.namespace` can be set.
+If `metadata.namespace` is not set, the field is defaulted to the namespace of the `ManagedResource`.
+Cluster scoped resources are not defaulted.
+<12> The field that is managed by the `ManagedResource`.
+<13> A `template` can return a single resource, a list of resources, or `null`.
+
+### Configuration manifest
+
+[source,yaml]
+----
+apiVersion: espejote.io/v1alpha1
+kind: JsonnetLibrary
+metadata:
+  labels:
+    app.kubernetes.io/name: nodedisruptionpolicies
+  name: nodedisruptionpolicies
+  namespace: openshift-machine-config-operator
+spec:
+  data:
+    config.json: |- <1>
+      {
+          "files": [
+              {
+                  "actions": [
+                      {
+                          "restart": {
+                              "serviceName": "chronyd.service"
+                          },
+                          "type": "Restart"
+                      }
+                  ],
+                  "path": "/etc/chrony.conf"
+              },
+              {
+                  "actions": [
+                      {
+                          "type": "None"
+                      }
+                  ],
+                  "path": "/usr/local/bin"
+              }
+          ],
+          "sshkey_actions": [
+
+          ],
+          "units": [
+
+          ]
+      }
+----
+<1> Generated with `std.manifestJson` in the component.
+
+### RBAC [[rbac]]
+
+[source,yaml]
+----
+apiVersion: v1 <1>
+kind: ServiceAccount
+metadata:
+  annotations: {}
+  labels:
+    name: nodedisruptionpolicies-manager
+  name: nodedisruptionpolicies-manager
+  namespace: openshift-machine-config-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  annotations: {}
+  labels:
+    name: espejote-nodedisruptionpolicies
+  name: espejote:nodedisruptionpolicies
+rules:
+  - apiGroups:
+      - operator.openshift.io
+    resources:
+      - machineconfigurations
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+      - patch <2>
+  - apiGroups:
+      - machineconfiguration.openshift.io
+    resources:
+      - machineconfigs
+    verbs:
+      - get
+      - list
+      - watch <3>
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  annotations: {}
+  labels:
+    name: espejote-nodedisruptionpolicies
+  name: espejote:nodedisruptionpolicies
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: espejote:nodedisruptionpolicies
+subjects:
+  - kind: ServiceAccount
+    name: nodedisruptionpolicies-manager
+    namespace: openshift-machine-config-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  annotations: {}
+  labels:
+    name: espejote-nodedisruptionpolicies
+  name: espejote:nodedisruptionpolicies
+  namespace: openshift-machine-config-operator
+rules:
+  - apiGroups:
+      - espejote.io
+    resources:
+      - jsonnetlibraries
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  annotations: {}
+  labels:
+    name: espejote-nodedisruptionpolicies
+  name: espejote:nodedisruptionpolicies
+  namespace: openshift-machine-config-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: espejote:nodedisruptionpolicies
+subjects:
+  - kind: ServiceAccount
+    name: nodedisruptionpolicies-manager
+    namespace: openshift-machine-config-operator
+----
+<1> The `ServiceAccount` is used to authenticate to the API server.
+<2> The `ManagedResource` needs to be able to patch the `MachineConfiguration` resource.
+<3> The `ManagedResource` needs to be able to watch the `MachineConfig` resources to build the context.
+
+## Source
+
+- https://github.com/appuio/component-openshift4-nodes/blob/7622ff25731f67177b0e844c22688270196d5dc5/component/node-disruption-policies.jsonnet[Commodore component]
+- https://github.com/appuio/component-openshift4-nodes/blob/7622ff25731f67177b0e844c22688270196d5dc5/tests/golden/node-disruption-policies/openshift4-nodes/openshift4-nodes/nodedisruptionpolicies_managedresource.yaml[`ManagedResource` manifest and configuration]
+- https://github.com/appuio/component-openshift4-nodes/blob/7622ff25731f67177b0e844c22688270196d5dc5/tests/golden/node-disruption-policies/openshift4-nodes/openshift4-nodes/nodedisruptionpolicies_rbac.yaml[RBAC for the `ManagedResource`]
