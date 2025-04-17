@@ -8,6 +8,7 @@ builds:
   - arm64
   goos:
   - linux
+  - darwin
   goarm:
   - "8"
 
