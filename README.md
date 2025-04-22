@@ -7,9 +7,25 @@
 
 ## Installation
 
+### In-cluster using `kubectl`
+
 ```sh
 kubectl apply -k config/crd
 kubectl apply -k config/default
+```
+
+### CLI using Homebrew
+
+Works on macOS and Linux.
+
+```sh
+brew install vshn/tap/espejote
+```
+
+### CLI using `go get`
+
+```sh
+go install github.com/vshn/espejote@latest
 ```
 
 ## Usage
