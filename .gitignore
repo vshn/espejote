@@ -13,6 +13,7 @@ espejote
 # Goreleaser
 dist/
 .github/release-notes.md
+contrib/
 
 # Test binary, build with `go test -c`
 *.test

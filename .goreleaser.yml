@@ -53,3 +53,16 @@ docker_manifests:
 
 release:
   prerelease: auto
+
+brews:
+  - repository:
+      owner: vshn
+      name: homebrew-tap
+    directory: Formula
+    homepage: "https://github.com/vshn/espejote"
+    description: An in-cluster templating controller.
+    install: |
+      bin.install "espejote"
+      bash_completion.install "contrib/completion/bash/espejote"
+      fish_completion.install "contrib/completion/fish/espejote"
+      zsh_completion.install "contrib/completion/zsh/_espejote"

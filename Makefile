@@ -20,6 +20,15 @@ help: ## Show this help
 
 all: build ## Invokes the build target
 
+.PHONY: completions
+completions:
+	mkdir -p contrib/completion/bash \
+		contrib/completion/fish \
+		contrib/completion/zsh
+	go run ./tools/completions bash > contrib/completion/bash/espejote
+	go run ./tools/completions fish > contrib/completion/fish/espejote
+	go run ./tools/completions zsh > contrib/completion/zsh/_espejote
+
 .PHONY: test
 test: manifests generate ## Run tests
 	KUBEBUILDER_ASSETS="$(shell go tool sigs.k8s.io/controller-runtime/tools/setup-envtest use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -race -coverprofile cover.tmp.out
@@ -53,7 +62,7 @@ vet: ## Run go vet against code
 	go vet ./...
 
 .PHONY: lint
-lint: fmt vet generate manifests docs ## All-in-one linting
+lint: completions fmt vet generate manifests docs ## All-in-one linting
 	@echo 'Checking kustomize build ...'
 	$(KUSTOMIZE) build config/crd -o /dev/null
 	$(KUSTOMIZE) build config/default -o /dev/null
@@ -66,7 +75,7 @@ build.docker: $(BIN_FILENAME) ## Build the docker image
 		--tag $(GHCR_IMG)
 
 clean: ## Cleans up the generated resources
-	rm -rf dist/ cover.out $(BIN_FILENAME) || true
+	rm -rf contrib/ dist/ cover.out $(BIN_FILENAME) || true
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
