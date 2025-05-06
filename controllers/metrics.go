@@ -4,7 +4,10 @@ import (
 	"context"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
+
+	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
 )
 
 const MetricsNamespace = "espejote"
@@ -120,5 +123,46 @@ func (c *CacheSizeCollector) Collect(ch chan<- prometheus.Metric) {
 				tn,
 			)
 		}
+	}
+}
+
+var (
+	espejoteManagedResourceStatusDesc = prometheus.NewDesc(
+		MetricsNamespace+"_managedresource_status",
+		"Status of the managed resource. Read from the resources .status.status field.",
+		[]string{"managedresource", "namespace", "status"},
+		nil,
+	)
+)
+
+// ManagedResourceStatusCollector collects status metrics for managed resources.
+// It loops over all managed resources and collects the infomation in the .status field.
+type ManagedResourceStatusCollector struct {
+	client.Reader
+}
+
+// Describe implements the prometheus.Collector interface.
+func (c *ManagedResourceStatusCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- espejoteManagedResourceStatusDesc
+}
+
+// Collect implements the prometheus.Collector interface.
+func (c *ManagedResourceStatusCollector) Collect(ch chan<- prometheus.Metric) {
+	ctx := context.Background()
+
+	var mrs espejotev1alpha1.ManagedResourceList
+	if err := c.Reader.List(ctx, &mrs); err != nil {
+		ch <- prometheus.NewInvalidMetric(espejoteManagedResourceStatusDesc, err)
+		return
+	}
+	for _, mr := range mrs.Items {
+		ch <- prometheus.MustNewConstMetric(
+			espejoteManagedResourceStatusDesc,
+			prometheus.GaugeValue,
+			1,
+			mr.Name,
+			mr.Namespace,
+			string(mr.Status.Status),
+		)
 	}
 }
