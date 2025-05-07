@@ -133,6 +133,13 @@ var (
 		[]string{"managedresource", "namespace", "status"},
 		nil,
 	)
+
+	espejoteManagedResourceStatusReadyDesc = prometheus.NewDesc(
+		MetricsNamespace+"_managedresource_status_ready",
+		"Ready status of the managed resource. 1 if ready, 0 if any other status. Read from the resources .status.status field.",
+		[]string{"managedresource", "namespace"},
+		nil,
+	)
 )
 
 // ManagedResourceStatusCollector collects status metrics for managed resources.
@@ -144,6 +151,7 @@ type ManagedResourceStatusCollector struct {
 // Describe implements the prometheus.Collector interface.
 func (c *ManagedResourceStatusCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- espejoteManagedResourceStatusDesc
+	ch <- espejoteManagedResourceStatusReadyDesc
 }
 
 // Collect implements the prometheus.Collector interface.
@@ -153,6 +161,7 @@ func (c *ManagedResourceStatusCollector) Collect(ch chan<- prometheus.Metric) {
 	var mrs espejotev1alpha1.ManagedResourceList
 	if err := c.Reader.List(ctx, &mrs); err != nil {
 		ch <- prometheus.NewInvalidMetric(espejoteManagedResourceStatusDesc, err)
+		ch <- prometheus.NewInvalidMetric(espejoteManagedResourceStatusReadyDesc, err)
 		return
 	}
 	for _, mr := range mrs.Items {
@@ -163,6 +172,18 @@ func (c *ManagedResourceStatusCollector) Collect(ch chan<- prometheus.Metric) {
 			mr.Name,
 			mr.Namespace,
 			string(mr.Status.Status),
+		)
+
+		ready := 0
+		if mr.Status.Status == "Ready" {
+			ready = 1
+		}
+		ch <- prometheus.MustNewConstMetric(
+			espejoteManagedResourceStatusReadyDesc,
+			prometheus.GaugeValue,
+			float64(ready),
+			mr.Name,
+			mr.Namespace,
 		)
 	}
 }

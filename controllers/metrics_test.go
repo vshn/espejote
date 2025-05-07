@@ -54,10 +54,15 @@ func Test_ManagedResourceStatusCollector(t *testing.T) {
 		espejote_managedresource_status{managedresource="empty",namespace="default",status=""} 1
 		espejote_managedresource_status{managedresource="error",namespace="default",status="DependencyConfigurationError"} 1
 		espejote_managedresource_status{managedresource="ready",namespace="default",status="Ready"} 1
-	`
+		# HELP espejote_managedresource_status_ready Ready status of the managed resource. 1 if ready, 0 if any other status. Read from the resources .status.status field.
+		# TYPE espejote_managedresource_status_ready gauge
+		espejote_managedresource_status_ready{managedresource="empty",namespace="default"} 0
+		espejote_managedresource_status_ready{managedresource="error",namespace="default"} 0
+		espejote_managedresource_status_ready{managedresource="ready",namespace="default"} 1
+		`
 
 	require.NoError(t,
-		testutil.CollectAndCompare(subject, strings.NewReader(metrics), "espejote_managedresource_status"),
+		testutil.CollectAndCompare(subject, strings.NewReader(metrics), "espejote_managedresource_status", "espejote_managedresource_status_ready"),
 	)
 }
 
