@@ -83,7 +83,7 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		require.NoError(t, mgr.Start(mgrCtx))
 	}()
 
-	t.Run("reconcile from added watch resource trigger", func(t *testing.T) {
+	t.Run("(relative) jsonnet imports", func(t *testing.T) {
 		t.Parallel()
 
 		testns := testutil.TmpNamespace(t, c)
@@ -101,11 +101,29 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 			},
 			Spec: espejotev1alpha1.JsonnetLibrarySpec{
 				Data: map[string]string{
-					"test.jsonnet": `{hello: "world"}`,
+					"test.jsonnet":       `import "dotrel.jsonnet"`,
+					"dotrel.jsonnet":     `import "./relrel.jsonnet"`,
+					"relrel.jsonnet":     `import "rel.jsonnet"`,
+					"espejote.libsonnet": `"wo"`,
+					"rel.jsonnet":        `{hello: (import "./espejote.libsonnet")+(import "test2/test.jsonnet")+"-"+(import "espejote.libsonnet").triggerName()}`,
 				},
 			},
 		}
 		require.NoError(t, c.Create(ctx, jsonnetLib))
+		jsonnetLib2 := &espejotev1alpha1.JsonnetLibrary{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test2",
+				Namespace: subject.JsonnetLibraryNamespace,
+			},
+			Spec: espejotev1alpha1.JsonnetLibrarySpec{
+				Data: map[string]string{
+					"test.jsonnet":   `import "relrel.jsonnet"`,
+					"relrel.jsonnet": `import "rel.jsonnet"`,
+					"rel.jsonnet":    `"rld"`,
+				},
+			},
+		}
+		require.NoError(t, c.Create(ctx, jsonnetLib2))
 		localJsonnetLib := &espejotev1alpha1.JsonnetLibrary{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test",
@@ -113,11 +131,27 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 			},
 			Spec: espejotev1alpha1.JsonnetLibrarySpec{
 				Data: map[string]string{
-					"test.jsonnet": `{hello: "local-hello"}`,
+					"test.jsonnet":   `import "relrel.jsonnet"`,
+					"relrel.jsonnet": `import "rel.jsonnet"`,
+					"rel.jsonnet":    `{hello: (import "test2/test.jsonnet")+(import "lib/test/test.jsonnet").hello}`,
 				},
 			},
 		}
 		require.NoError(t, c.Create(ctx, localJsonnetLib))
+		localJsonnetLib2 := &espejotev1alpha1.JsonnetLibrary{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test2",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.JsonnetLibrarySpec{
+				Data: map[string]string{
+					"test.jsonnet":   `import "relrel.jsonnet"`,
+					"relrel.jsonnet": `import "rel.jsonnet"`,
+					"rel.jsonnet":    `"local-"`,
+				},
+			},
+		}
+		require.NoError(t, c.Create(ctx, localJsonnetLib2))
 
 		res := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
@@ -168,8 +202,8 @@ if esp.triggerName() == "ns" then [{
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var cm corev1.ConfigMap
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: "test"}, &cm))
-			assert.Equal(t, "world", cm.Annotations["espejote.vshn.net/hello"])
-			assert.Equal(t, "local-hello", cm.Annotations["espejote.vshn.net/local-hello"])
+			assert.Equal(t, "world-ns", cm.Annotations["espejote.vshn.net/hello"])
+			assert.Equal(t, "local-world-ns", cm.Annotations["espejote.vshn.net/local-hello"])
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 

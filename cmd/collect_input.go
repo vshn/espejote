@@ -101,11 +101,8 @@ func (rcc *collectInputCommandConfig) runCollectInput(cmd *cobra.Command, args [
 	}
 
 	input.Libraries = map[string]string{}
-	for k, v := range importer.Cache {
-		if k == "espejote.libsonnet" {
-			continue
-		}
-		input.Libraries[k] = v.Contents.String()
+	for _, v := range importer.Cache {
+		input.Libraries[v.FoundAt] = v.Contents.String()
 	}
 
 	yaml, err := yaml.Marshal(input)

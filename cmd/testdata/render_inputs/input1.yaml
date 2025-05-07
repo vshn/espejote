@@ -68,4 +68,6 @@ context:
     status:
       phase: Active
 libraries:
-  jsonnetlibrary-sample/sample.libsonnet: "{Sample: 'Hello World'}"
+  jsonnetlibrary-sample/rel.libsonnet: "{Sample: 'Hello World'}"
+  jsonnetlibrary-sample/relrel.libsonnet: "import \"rel.libsonnet\""
+  jsonnetlibrary-sample/sample.libsonnet: "import \"relrel.libsonnet\""

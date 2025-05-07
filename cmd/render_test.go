@@ -52,7 +52,9 @@ func Test_runRender_Cluster(t *testing.T) {
 		},
 		Spec: espejotev1alpha1.JsonnetLibrarySpec{
 			Data: map[string]string{
-				"sample.libsonnet": `{test: "test"}`,
+				"sample.libsonnet": `import "relrel.libsonnet"`,
+				"relrel.libsonnet": `import "rel.libsonnet"`,
+				"rel.libsonnet":    `{test: "test"}`,
 			},
 		},
 	}

@@ -8,6 +8,12 @@ import (
 type JsonnetLibrarySpec struct {
 	// Data is a map of Jsonnet library files.
 	// The key is the file name and the value is the file content.
+	// JsonnetLibraries can use relative imports as follows:
+	//
+	// - `./KEY` and `KEY` resolve to the same JsonnetLibrary manifest.
+	// - `./NAME/KEY` and `NAME/KEY` resolve to the same namespace (shared/local).
+	// - `espejote.libsonnet` always resolves to the built-in library.
+	// - `./espejote.libsonnet ` resolves to the `espejote.libsonnet` key in the same library.
 	Data map[string]string `json:"data,omitempty"`
 }
 
