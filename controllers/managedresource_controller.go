@@ -84,6 +84,9 @@ type ManagedResourceReconciler struct {
 
 	cachesMux sync.RWMutex
 	caches    map[types.NamespacedName]*instanceCache
+
+	// newCacheFunc is only used for testing
+	newCacheFunction cache.NewCacheFunc
 }
 
 type instanceCache struct {
@@ -789,7 +792,12 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 		transformFunc = cache.TransformStripManagedFields()
 	}
 
-	c, err := cache.New(rc, cache.Options{
+	newCacheFunc := r.newCacheFunction
+	if newCacheFunc == nil {
+		newCacheFunc = cache.New
+	}
+
+	c, err := newCacheFunc(rc, cache.Options{
 		Scheme: r.Scheme,
 		Mapper: r.mapper,
 		// We want to explicitly fail if the informer is missing, otherwise we might create some unconfigured caches without any warning on programming errors.
