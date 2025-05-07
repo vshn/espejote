@@ -27,9 +27,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -1251,7 +1252,11 @@ espejote_reconciles_total{managedresource="test",namespace="`+testns+`",trigger=
 	})
 }
 
-func Test_ManagedResourceReconciler_Reconcile_SlowClient(t *testing.T) {
+func Test_ManagedResourceReconciler_Reconcile_WithBlockingCache(t *testing.T) {
+	// Tests that the Resource stays in WaitingForCacheSync until the cache is ready.
+	// The nice way™️ would be to add a slow/ blocking aggregate API server so we don't need
+	// to inject anything into the controller. Most likely not worth the effort.
+
 	t.Parallel()
 
 	scheme, cfg := testutil.SetupEnvtestEnv(t)
@@ -1259,10 +1264,6 @@ func Test_ManagedResourceReconciler_Reconcile_SlowClient(t *testing.T) {
 		Scheme: scheme,
 	})
 	require.NoError(t, err)
-	slowC := &slowClient{
-		WithWatch: c,
-		Sleep:     100 * time.Millisecond,
-	}
 
 	ctx := log.IntoContext(t.Context(), testr.New(t))
 
@@ -1272,11 +1273,12 @@ func Test_ManagedResourceReconciler_Reconcile_SlowClient(t *testing.T) {
 	})
 	require.NoError(t, err)
 	subject := &ManagedResourceReconciler{
-		Client:                  slowC,
-		Scheme:                  slowC.Scheme(),
+		Client:                  c,
+		Scheme:                  c.Scheme(),
 		ControllerLifetimeCtx:   ctx,
 		JsonnetLibraryNamespace: "jsonnetlibs",
 		Recorder:                mgr.GetEventRecorderFor("managed-resource-controller"),
+		newCacheFunction:        newSlowCachefunc,
 	}
 	require.NoError(t, subject.SetupWithName(cfg, mgr, "slow_client"))
 
@@ -1287,24 +1289,7 @@ func Test_ManagedResourceReconciler_Reconcile_SlowClient(t *testing.T) {
 	}()
 
 	t.Run("test waiting for sync before becoming ready", func(t *testing.T) {
-		t.Parallel()
-
 		testns := testutil.TmpNamespace(t, c)
-
-		contextCM := &corev1.ConfigMap{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: "v1",
-				Kind:       "ConfigMap",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "context",
-				Namespace: testns,
-			},
-			Data: map[string]string{
-				"test": "test",
-			},
-		}
-		require.NoError(t, c.Patch(ctx, contextCM, client.Apply, client.FieldOwner("test")))
 
 		mr := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
@@ -1317,7 +1302,6 @@ func Test_ManagedResourceReconciler_Reconcile_SlowClient(t *testing.T) {
 					Resource: espejotev1alpha1.ContextResource{
 						APIVersion: "v1",
 						Kind:       "ConfigMap",
-						MatchNames: []string{"context"},
 					},
 				}},
 				Template: `null`,
@@ -1330,6 +1314,18 @@ func Test_ManagedResourceReconciler_Reconcile_SlowClient(t *testing.T) {
 			assert.Equal(t, "WaitingForCacheSync", mr.Status.Status)
 		}, 5*time.Second, 10*time.Millisecond)
 
+		t.Log("unblocking the cache sync")
+		subject.cachesMux.RLock()
+		for mrk, c := range subject.caches {
+			if mrk.Name != mr.Name || mrk.Namespace != mr.Namespace {
+				continue
+			}
+			for _, cc := range c.contextCaches {
+				close(cc.cache.(*slowCache).blockSync)
+			}
+		}
+		subject.cachesMux.RUnlock()
+
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
 			assert.Equal(t, "Ready", mr.Status.Status)
@@ -1341,31 +1337,31 @@ func Test_ManagedResourceReconciler_Reconcile_SlowClient(t *testing.T) {
 	})
 }
 
-type slowClient struct {
-	client.WithWatch
-
-	Sleep time.Duration
-}
-
-func (s *slowClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-	time.Sleep(s.Sleep)
-	return s.WithWatch.Get(ctx, key, obj, opts...)
-}
-
-func (s *slowClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
-	time.Sleep(s.Sleep)
-	return s.WithWatch.List(ctx, list, opts...)
-}
-
-func (s *slowClient) Watch(ctx context.Context, list client.ObjectList, opts ...client.ListOption) (watch.Interface, error) {
-	i, err := s.WithWatch.Watch(ctx, list, opts...)
+func newSlowCachefunc(config *rest.Config, opts cache.Options) (cache.Cache, error) {
+	c, err := cache.New(config, opts)
 	if err != nil {
 		return nil, err
 	}
-	return watch.Filter(i, func(in watch.Event) (out watch.Event, keep bool) {
-		time.Sleep(s.Sleep)
-		return in, true
-	}), nil
+
+	return &slowCache{
+		Cache:     c,
+		blockSync: make(chan struct{}),
+	}, nil
+}
+
+type slowCache struct {
+	cache.Cache
+
+	blockSync chan struct{}
+}
+
+func (sc *slowCache) WaitForCacheSync(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+	case <-sc.blockSync:
+	}
+
+	return sc.Cache.WaitForCacheSync(ctx)
 }
 
 // metricHasLabelPair returns a function that checks if a metric has a label pair with the given name and value.
