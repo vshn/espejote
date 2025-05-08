@@ -161,7 +161,7 @@ func renderFromInput(ctx context.Context, out io.Writer, mr espejotev1alpha1.Man
 			imports[name] = jsonnet.MakeContents(code)
 		}
 		imports["espejote.libsonnet"] = jsonnet.MakeContents(controllers.EspejoteLibsonnet)
-		importer = &jsonnet.MemoryImporter{Data: imports}
+		importer = &espejoteMemoryImporter{contents: imports}
 	}
 
 	for _, trigger := range input.Triggers {
@@ -202,6 +202,24 @@ func renderFromInput(ctx context.Context, out io.Writer, mr espejotev1alpha1.Man
 	}
 
 	return nil
+}
+
+var espejoteLibsonnetContents = jsonnet.MakeContents(controllers.EspejoteLibsonnet)
+
+type espejoteMemoryImporter struct {
+	contents map[string]jsonnet.Contents
+}
+
+func (r *espejoteMemoryImporter) Import(importedFrom, importPath string) (jsonnet.Contents, string, error) {
+	if importPath == "espejote.libsonnet" {
+		return espejoteLibsonnetContents, importPath, nil
+	}
+
+	abs := controllers.MakeAbsoluteImportPath(importedFrom, importPath)
+	if content, ok := r.contents[abs]; ok {
+		return content, abs, nil
+	}
+	return jsonnet.Contents{}, "", fmt.Errorf("import not found %q (%q from %q)", abs, importPath, importedFrom)
 }
 
 type staticUnstructuredReader struct {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vshn/espejote/testutil"
 	corev1 "k8s.io/api/core/v1"
@@ -57,7 +58,9 @@ func Test_runCollectInput(t *testing.T) {
 				},
 				Spec: espejotev1alpha1.JsonnetLibrarySpec{
 					Data: map[string]string{
-						"sample.libsonnet": `{test: "test"}`,
+						"sample.libsonnet": `import "relrel.libsonnet"`,
+						"relrel.libsonnet": `import "rel.libsonnet"`,
+						"rel.libsonnet":    `{test: "test"}`,
 					},
 				},
 			}
@@ -91,9 +94,13 @@ func Test_runCollectInput(t *testing.T) {
 				}
 			}
 
-			require.Equal(t, []string{"::0", "configmap:test-1:0", "configmap:test-5:0", "configmap:test-7:0", "configmap:test-9:0"}, collectedTriggers)
-			require.Equal(t, []string{"configmaps:test-1:0", "configmaps:test-5:0", "configmaps:test-7:0", "configmaps:test-9:0"}, collectedContexts)
-			require.Equal(t, map[string]string{"jsonnetlibrary-sample/sample.libsonnet": lib.Spec.Data["sample.libsonnet"]}, ri.Libraries)
+			assert.Equal(t, []string{"::0", "configmap:test-1:0", "configmap:test-5:0", "configmap:test-7:0", "configmap:test-9:0"}, collectedTriggers)
+			assert.Equal(t, []string{"configmaps:test-1:0", "configmaps:test-5:0", "configmaps:test-7:0", "configmaps:test-9:0"}, collectedContexts)
+			assert.Equal(t, map[string]string{
+				"jsonnetlibrary-sample/sample.libsonnet": lib.Spec.Data["sample.libsonnet"],
+				"jsonnetlibrary-sample/relrel.libsonnet": lib.Spec.Data["relrel.libsonnet"],
+				"jsonnetlibrary-sample/rel.libsonnet":    lib.Spec.Data["rel.libsonnet"],
+			}, ri.Libraries)
 		})
 	}
 }
