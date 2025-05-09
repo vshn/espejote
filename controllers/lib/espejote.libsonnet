@@ -288,4 +288,69 @@ local alpha = {
         preconditionResourceVersion: preconditionResourceVersion,
       }),
     },
+
+  '#applyOptions': d.fn(
+    |||
+      `applyOptions` allows configuring apply options for an object.
+      These options override the `spec.applyOptions` fields of the managed resource.
+
+      The options are used by the controller to determine how to apply the object.
+      The options are:
+      - fieldManager: string, the field manager to use when applying the ManagedResource.
+        If not set, the field manager is set to the name of the resource with `managed-resource` prefix
+      - force: boolean, is going to "force" Apply requests.
+        It means user will re-acquire conflicting fields owned by other people.
+      - fieldValidation: string, instructs the managed resource on how to handle
+        objects containing unknown or duplicate fields. Valid values are:
+        - Ignore: This will ignore any unknown fields that are silently
+        dropped from the object, and will ignore all but the last duplicate
+        field that the decoder encounters.
+        Note that Jsonnet won't allow you to add duplicate fields to an object
+        and most unregistered fields will error out in the server-side apply
+        request, even with this option set.
+        - Strict: This will fail the request with a BadRequest error if
+        any unknown fields would be dropped from the object, or if any
+        duplicate fields are present. The error returned will contain
+        all unknown and duplicate fields encountered.
+        Defaults to "Strict".
+
+      ```jsonnet
+      esp.applyOptions(
+        {
+          apiVersion: 'v1',
+          kind: 'ConfigMap',
+          metadata: {
+            name: 'cm-to-apply-options',
+            namespace: 'target-namespace',
+            annotations: {
+              'my.tool/status': 'Success',
+            },
+          },
+        },
+        fieldManager='my-tool-status-reporter',
+      )
+      ```
+    |||,
+    [
+      d.arg('obj', d.T.object),
+      d.arg('fieldManager', d.T.string, null),
+      d.arg('force', d.T.boolean, null),
+      d.arg('fieldValidation', d.T.string, null),
+    ],
+  ),
+  applyOptions:
+    function(
+      obj,
+      fieldManager=null,
+      force=null,
+      fieldValidation=null,
+    ) obj {
+      local allowedFieldValidation = [null, 'Ignore', 'Strict'],
+      assert std.member(allowedFieldValidation, fieldValidation) : 'fieldValidation must be one of %s, is: %s' % [std.manifestJsonMinified(allowedFieldValidation), fieldValidation],
+      __internal_use_espejote_lib_apply_options: std.prune({
+        fieldManager: fieldManager,
+        force: force,
+        fieldValidation: fieldValidation,
+      }),
+    },
 }
