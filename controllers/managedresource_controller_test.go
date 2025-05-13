@@ -949,6 +949,60 @@ local netpols = esp.context().netpols;
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
+	t.Run("espejote.libsonnet#applyOptions(fieldManagerSuffix)", func(t *testing.T) {
+		t.Parallel()
+
+		testns := testutil.TmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Template: `[
+					{
+						apiVersion: "v1",
+						kind: "ConfigMap",
+						metadata: {
+							name: "test",
+							namespace: "` + testns + `",
+						},
+						data: {
+							test: "test",
+						},
+					}, (import "espejote.libsonnet").applyOptions({
+						apiVersion: "v1",
+						kind: "ConfigMap",
+						metadata: {
+							name: "test",
+							namespace: "` + testns + `",
+							annotations: {
+								"my.tool/status": "Managed",
+							},
+						},
+					}, fieldManagerSuffix=":status-report")
+				]`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			assert.Equal(t, "test", cm.Data["test"])
+			assert.Equal(t, "Managed", cm.Annotations["my.tool/status"])
+
+			fieldManagers := make([]string, 0, len(cm.ObjectMeta.ManagedFields))
+			for _, mf := range cm.ObjectMeta.ManagedFields {
+				fieldManagers = append(fieldManagers, mf.Manager)
+			}
+			assert.Contains(t, fieldManagers, "managed-resource:test")
+			assert.Contains(t, fieldManagers, "managed-resource:test:status-report")
+
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
 	t.Run("field validation Ignore", func(t *testing.T) {
 		t.Parallel()
 		t.Log("field validation Ignore seems to have no effect on the apply process. This test is here to document this behavior and see if the behavior changes in the future.")

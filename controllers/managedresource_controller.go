@@ -975,16 +975,21 @@ func patchOptionsFromObject(mr espejotev1alpha1.ManagedResource, obj *unstructur
 	}
 
 	fieldManager := mr.Spec.ApplyOptions.FieldManager
-	objFieldOwner, ok, err := unstructured.NestedString(obj.UnstructuredContent(), optionsKey, "fieldManager")
+	objFieldManager, ok, err := unstructured.NestedString(obj.UnstructuredContent(), optionsKey, "fieldManager")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get apply option field owner: %w", err)
+		return nil, fmt.Errorf("failed to get apply option fieldManager: %w", err)
 	}
 	if ok {
-		fieldManager = objFieldOwner
+		fieldManager = objFieldManager
 	}
 	if fieldManager == "" {
 		fieldManager = fmt.Sprintf("managed-resource:%s", mr.GetName())
 	}
+	objFieldManagerSuffix, _, err := unstructured.NestedString(obj.UnstructuredContent(), optionsKey, "fieldManagerSuffix")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get apply option fieldManagerSuffix: %w", err)
+	}
+	fieldManager += objFieldManagerSuffix
 
 	po := []client.PatchOption{client.FieldValidation(fieldValidation), client.FieldOwner(fieldManager)}
 

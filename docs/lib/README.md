@@ -12,7 +12,7 @@ local espejote = import "espejote.libsonnet"
 
 ## Index
 
-* [`fn applyOptions(obj, fieldManager, force, fieldValidation)`](#fn-applyoptions)
+* [`fn applyOptions(obj, fieldManager, fieldManagerSuffix, force, fieldValidation)`](#fn-applyoptions)
 * [`fn context()`](#fn-context)
 * [`fn markForDelete(obj, gracePeriodSeconds, propagationPolicy, preconditionUID, preconditionResourceVersion)`](#fn-markfordelete)
 * [`fn triggerData()`](#fn-triggerdata)
@@ -31,7 +31,7 @@ local espejote = import "espejote.libsonnet"
 ### fn applyOptions
 
 ```ts
-applyOptions(obj, fieldManager, force, fieldValidation)
+applyOptions(obj, fieldManager, fieldManagerSuffix, force, fieldValidation)
 ```
 
 `applyOptions` allows configuring apply options for an object.
@@ -41,6 +41,8 @@ The options are used by the controller to determine how to apply the object.
 The options are:
 - fieldManager: string, the field manager to use when applying the ManagedResource.
   If not set, the field manager is set to the name of the resource with `managed-resource` prefix
+- fieldManagerSuffix: string, a suffix to append to the field manager.
+  This is useful if different code paths in the template apply differing parts of a resource.
 - force: boolean, is going to "force" Apply requests.
   It means user will re-acquire conflicting fields owned by other people.
 - fieldValidation: string, instructs the managed resource on how to handle
@@ -70,7 +72,7 @@ esp.applyOptions(
       },
     },
   },
-  fieldManager='my-tool-status-reporter',
+  fieldManagerSuffix=':status-reporter',
 )
 ```
 

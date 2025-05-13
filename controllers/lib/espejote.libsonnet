@@ -298,6 +298,8 @@ local alpha = {
       The options are:
       - fieldManager: string, the field manager to use when applying the ManagedResource.
         If not set, the field manager is set to the name of the resource with `managed-resource` prefix
+      - fieldManagerSuffix: string, a suffix to append to the field manager.
+        This is useful if different code paths in the template apply differing parts of a resource.
       - force: boolean, is going to "force" Apply requests.
         It means user will re-acquire conflicting fields owned by other people.
       - fieldValidation: string, instructs the managed resource on how to handle
@@ -327,13 +329,14 @@ local alpha = {
             },
           },
         },
-        fieldManager='my-tool-status-reporter',
+        fieldManagerSuffix=':status-reporter',
       )
       ```
     |||,
     [
       d.arg('obj', d.T.object),
       d.arg('fieldManager', d.T.string, null),
+      d.arg('fieldManagerSuffix', d.T.string, null),
       d.arg('force', d.T.boolean, null),
       d.arg('fieldValidation', d.T.string, null),
     ],
@@ -342,6 +345,7 @@ local alpha = {
     function(
       obj,
       fieldManager=null,
+      fieldManagerSuffix=null,
       force=null,
       fieldValidation=null,
     ) obj {
@@ -349,6 +353,7 @@ local alpha = {
       assert std.member(allowedFieldValidation, fieldValidation) : 'fieldValidation must be one of %s, is: %s' % [std.manifestJsonMinified(allowedFieldValidation), fieldValidation],
       __internal_use_espejote_lib_apply_options: std.prune({
         fieldManager: fieldManager,
+        fieldManagerSuffix: fieldManagerSuffix,
         force: force,
         fieldValidation: fieldValidation,
       }),
