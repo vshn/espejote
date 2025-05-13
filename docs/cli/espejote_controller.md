@@ -23,6 +23,10 @@ espejote controller [flags]
       --jsonnet-library-namespace lib/                  The namespace to look for shared (lib/) Jsonnet libraries in. (default "default")
       --leader-elect                                    Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.
       --metrics-bind-address string                     The address the metric endpoint binds to. (default ":8080")
+      --metrics-cert-key string                         The name of the metrics server key file. (default "tls.key")
+      --metrics-cert-name string                        The name of the metrics server certificate file. (default "tls.crt")
+      --metrics-cert-path string                        The directory that contains the metrics server certificate.
+      --metrics-secure                                  If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead. (default true)
       --webhook-cert-key string                         The name of the webhook key file. (default "tls.key")
       --webhook-cert-name string                        The name of the webhook certificate file. (default "tls.crt")
       --webhook-cert-path string                        The directory that contains the webhook certificate.
