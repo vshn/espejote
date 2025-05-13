@@ -719,6 +719,86 @@ local netpols = esp.context().netpols;
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
+	t.Run("force ownership espejote.libsonnet", func(t *testing.T) {
+		t.Parallel()
+
+		testns := testutil.TmpNamespace(t, c)
+
+		cmToPatch := &corev1.ConfigMap{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "v1",
+				Kind:       "ConfigMap",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Data: map[string]string{
+				"test": "test",
+			},
+		}
+		const origOwner = "other-owner"
+		require.NoError(t, c.Patch(ctx, cmToPatch, client.Apply, client.FieldOwner(origOwner)))
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Template: `{
+					apiVersion: "v1",
+					kind: "ConfigMap",
+					metadata: {
+						name: "test",
+						namespace: "` + testns + `",
+					},
+					data: {
+						test: "updated",
+					},
+				}`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		t.Log("waiting for the conflict event")
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var events corev1.EventList
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorFor(mr.Name)))
+			require.Len(t, events.Items, 1)
+			assert.Equal(t, "Warning", events.Items[0].Type)
+			assert.Contains(t, events.Items[0].Message, ApplyError)
+			assert.Contains(t, events.Items[0].Message, "conflict")
+			assert.Contains(t, events.Items[0].Message, origOwner)
+			assert.Contains(t, events.Items[0].Message, ".data.test")
+
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			assert.Equal(t, "test", cm.Data["test"])
+		}, 5*time.Second, 100*time.Millisecond)
+
+		t.Log("force updating the resource and waiting for a successful update")
+		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+		mr.Spec.Template = `(import "espejote.libsonnet").applyOptions({
+					apiVersion: "v1",
+					kind: "ConfigMap",
+					metadata: {
+						name: "test",
+						namespace: "` + testns + `",
+					},
+					data: {
+						test: "updated",
+					},
+				}, force=true)`
+		require.NoError(t, c.Update(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			assert.Equal(t, "updated", cm.Data["test"])
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
 	t.Run("override field manager", func(t *testing.T) {
 		t.Parallel()
 
@@ -789,6 +869,140 @@ local netpols = esp.context().netpols;
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
+	t.Run("override field manager espejote.libsonnet", func(t *testing.T) {
+		t.Parallel()
+
+		testns := testutil.TmpNamespace(t, c)
+
+		cmToPatch := &corev1.ConfigMap{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "v1",
+				Kind:       "ConfigMap",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Data: map[string]string{
+				"test": "test",
+			},
+		}
+		const origOwner = "other-owner"
+		require.NoError(t, c.Patch(ctx, cmToPatch, client.Apply, client.FieldOwner(origOwner)))
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Template: `{
+					apiVersion: "v1",
+					kind: "ConfigMap",
+					metadata: {
+						name: "test",
+						namespace: "` + testns + `",
+					},
+					data: {
+						test: "updated",
+					},
+				}`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		t.Log("waiting for the conflict event")
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var events corev1.EventList
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorFor(mr.Name)))
+			require.Len(t, events.Items, 1)
+			assert.Equal(t, "Warning", events.Items[0].Type)
+			assert.Contains(t, events.Items[0].Message, ApplyError)
+			assert.Contains(t, events.Items[0].Message, "conflict")
+			assert.Contains(t, events.Items[0].Message, origOwner)
+			assert.Contains(t, events.Items[0].Message, ".data.test")
+
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			assert.Equal(t, "test", cm.Data["test"])
+		}, 5*time.Second, 100*time.Millisecond)
+
+		t.Log("changing the field manager to the original field manager and waiting for a successful update")
+		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+		mr.Spec.Template = `(import "espejote.libsonnet").applyOptions({
+					apiVersion: "v1",
+					kind: "ConfigMap",
+					metadata: {
+						name: "test",
+						namespace: "` + testns + `",
+					},
+					data: {
+						test: "updated",
+					},
+				}, fieldManager="` + origOwner + `")`
+		require.NoError(t, c.Update(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			assert.Equal(t, "updated", cm.Data["test"])
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
+	t.Run("espejote.libsonnet#applyOptions(fieldManagerSuffix)", func(t *testing.T) {
+		t.Parallel()
+
+		testns := testutil.TmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Template: `[
+					{
+						apiVersion: "v1",
+						kind: "ConfigMap",
+						metadata: {
+							name: "test",
+							namespace: "` + testns + `",
+						},
+						data: {
+							test: "test",
+						},
+					}, (import "espejote.libsonnet").applyOptions({
+						apiVersion: "v1",
+						kind: "ConfigMap",
+						metadata: {
+							name: "test",
+							namespace: "` + testns + `",
+							annotations: {
+								"my.tool/status": "Managed",
+							},
+						},
+					}, fieldManagerSuffix=":status-report")
+				]`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			assert.Equal(t, "test", cm.Data["test"])
+			assert.Equal(t, "Managed", cm.Annotations["my.tool/status"])
+
+			fieldManagers := make([]string, 0, len(cm.ObjectMeta.ManagedFields))
+			for _, mf := range cm.ObjectMeta.ManagedFields {
+				fieldManagers = append(fieldManagers, mf.Manager)
+			}
+			assert.Contains(t, fieldManagers, "managed-resource:test")
+			assert.Contains(t, fieldManagers, "managed-resource:test:status-report")
+
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
 	t.Run("field validation Ignore", func(t *testing.T) {
 		t.Parallel()
 		t.Log("field validation Ignore seems to have no effect on the apply process. This test is here to document this behavior and see if the behavior changes in the future.")
@@ -831,6 +1045,67 @@ local netpols = esp.context().netpols;
 		t.Log("ignoring dropped field and waiting for a successful update")
 		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
 		mr.Spec.ApplyOptions.FieldValidation = "Ignore"
+		require.NoError(t, c.Update(ctx, mr))
+
+		// Error should always be IsNotFound, see head of test as for why
+		require.Never(t, func() bool {
+			return !apierrors.IsNotFound(c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, new(corev1.ConfigMap)))
+		}, 2*time.Second, 100*time.Millisecond)
+	})
+
+	t.Run("field validation Ignore espejote.libsonnet", func(t *testing.T) {
+		t.Parallel()
+		t.Log("field validation Ignore seems to have no effect on the apply process. This test is here to document this behavior and see if the behavior changes in the future.")
+
+		testns := testutil.TmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Template: `{
+					apiVersion: "v1",
+					kind: "ConfigMap",
+					metadata: {
+						name: "test",
+						namespace: "` + testns + `",
+					},
+					data: {
+						test: "test",
+					},
+					typo: "what what",
+				}`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		t.Log("waiting for the validation error event")
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var events corev1.EventList
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorFor(mr.Name)))
+			require.Len(t, events.Items, 1)
+			assert.Equal(t, "Warning", events.Items[0].Type)
+			assert.Contains(t, events.Items[0].Message, ApplyError)
+			assert.Contains(t, events.Items[0].Message, ".typo")
+			assert.Contains(t, events.Items[0].Message, "field not declared")
+		}, 5*time.Second, 100*time.Millisecond)
+
+		t.Log("ignoring dropped field and waiting for a successful update")
+		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+		mr.Spec.Template = `(import "espejote.libsonnet").applyOptions({
+					apiVersion: "v1",
+					kind: "ConfigMap",
+					metadata: {
+						name: "test",
+						namespace: "` + testns + `",
+					},
+					data: {
+						test: "test",
+					},
+					typo: "what what",
+				}, fieldValidation="Ignore")`
 		require.NoError(t, c.Update(ctx, mr))
 
 		// Error should always be IsNotFound, see head of test as for why

@@ -312,7 +312,12 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 			continue
 		}
 
-		if err := c.Patch(ctx, obj, client.Apply, patchOptionsFromManagedResource(managedResource)...); err != nil {
+		patchOptions, err := patchOptionsFromObject(managedResource, obj)
+		if err != nil {
+			applyErrs = append(applyErrs, fmt.Errorf("failed to get patch options: %w", err))
+			continue
+		}
+		if err := c.Patch(ctx, obj, client.Apply, patchOptions...); err != nil {
 			applyErrs = append(applyErrs, fmt.Errorf("failed to apply object %q %q: %w", obj.GetObjectKind(), obj.GetName(), err))
 		}
 	}
@@ -946,23 +951,63 @@ func wrapNewInformerWithFilter(f func(o client.Object) (keep bool)) func(toolsca
 	}
 }
 
-// patchOptionsFromManagedResource returns the patch options for the given ManagedResource.
-// The options are taken from the ManagedResource's ApplyOptions.
-func patchOptionsFromManagedResource(mr espejotev1alpha1.ManagedResource) []client.PatchOption {
+// patchOptionsFromObject returns the patch options for the given ManagedResource and object.
+// The options are merged from the ManagedResource's ApplyOptions and the object's annotations.
+// Object annotations take precedence over ManagedResource's ApplyOptions.
+// The options are:
+// - FieldValidation: the field validation mode (default: "Strict")
+// - FieldManager: the field manager/owner (default: "managed-resource:<name>")
+// - ForceOwnership: if true, the ownership is forced (default: false)
+// Warning: this function modifies the object by removing the options from the annotations.
+func patchOptionsFromObject(mr espejotev1alpha1.ManagedResource, obj *unstructured.Unstructured) ([]client.PatchOption, error) {
+	const optionsKey = "__internal_use_espejote_lib_apply_options"
+
 	fieldValidation := mr.Spec.ApplyOptions.FieldValidation
+	objFieldValidation, ok, err := unstructured.NestedString(obj.UnstructuredContent(), optionsKey, "fieldValidation")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get apply option field validation: %w", err)
+	}
+	if ok {
+		fieldValidation = objFieldValidation
+	}
 	if fieldValidation == "" {
 		fieldValidation = "Strict"
 	}
-	fieldOwner := mr.Spec.ApplyOptions.FieldManager
-	if fieldOwner == "" {
-		fieldOwner = fmt.Sprintf("managed-resource:%s", mr.GetName())
+
+	fieldManager := mr.Spec.ApplyOptions.FieldManager
+	objFieldManager, ok, err := unstructured.NestedString(obj.UnstructuredContent(), optionsKey, "fieldManager")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get apply option fieldManager: %w", err)
 	}
-	po := []client.PatchOption{client.FieldValidation(fieldValidation), client.FieldOwner(fieldOwner)}
-	if mr.Spec.ApplyOptions.Force {
+	if ok {
+		fieldManager = objFieldManager
+	}
+	if fieldManager == "" {
+		fieldManager = fmt.Sprintf("managed-resource:%s", mr.GetName())
+	}
+	objFieldManagerSuffix, _, err := unstructured.NestedString(obj.UnstructuredContent(), optionsKey, "fieldManagerSuffix")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get apply option fieldManagerSuffix: %w", err)
+	}
+	fieldManager += objFieldManagerSuffix
+
+	po := []client.PatchOption{client.FieldValidation(fieldValidation), client.FieldOwner(fieldManager)}
+
+	objForce, ok, err := unstructured.NestedBool(obj.UnstructuredContent(), optionsKey, "force")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get apply option force: %w", err)
+	}
+	if ok {
+		if objForce {
+			po = append(po, client.ForceOwnership)
+		}
+	} else if mr.Spec.ApplyOptions.Force {
 		po = append(po, client.ForceOwnership)
 	}
 
-	return po
+	unstructured.RemoveNestedField(obj.UnstructuredContent(), optionsKey)
+
+	return po, nil
 }
 
 // stripUnstructuredForDelete returns a copy of the given unstructured object with only the GroupVersionKind, Namespace and Name set.
