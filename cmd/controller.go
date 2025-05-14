@@ -21,7 +21,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vshn/espejote/admission"
@@ -65,6 +66,11 @@ func init() {
 	controllerCmd.Flags().String("webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
 	controllerCmd.Flags().String("webhook-cert-key", "tls.key", "The name of the webhook key file.")
 
+	controllerCmd.Flags().Bool("metrics-secure", true, "If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
+	controllerCmd.Flags().String("metrics-cert-path", "", "The directory that contains the metrics server certificate.")
+	controllerCmd.Flags().String("metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
+	controllerCmd.Flags().String("metrics-cert-key", "tls.key", "The name of the metrics server key file.")
+
 	registerJsonnetLibraryNamespaceFlag(controllerCmd)
 }
 
@@ -93,7 +99,12 @@ func runController(cmd *cobra.Command, _ []string) error {
 	webhookCertPath, wcperr := cmd.Flags().GetString("webhook-cert-path")
 	webhookCertName, wcnerr := cmd.Flags().GetString("webhook-cert-name")
 	webhookCertKey, wckerr := cmd.Flags().GetString("webhook-cert-key")
-	if err := multierr.Combine(jlnerr, cnerr, dawsnerr, wcperr, wcnerr, wckerr, edawerr, dawnerr, dawperr); err != nil {
+	secureMetrics, smerr := cmd.Flags().GetBool("metrics-secure")
+	metricsCertPath, mcperr := cmd.Flags().GetString("metrics-cert-path")
+	metricsCertName, mcnerr := cmd.Flags().GetString("metrics-cert-name")
+	metricsCertKey, mckerr := cmd.Flags().GetString("metrics-cert-key")
+
+	if err := multierr.Combine(jlnerr, cnerr, dawsnerr, wcperr, wcnerr, wckerr, edawerr, dawnerr, dawperr, mcperr, mcnerr, mckerr, smerr); err != nil {
 		return fmt.Errorf("failed to get flags: %w", err)
 	}
 
@@ -134,12 +145,45 @@ func runController(cmd *cobra.Command, _ []string) error {
 		TLSOpts: webhookTLSOpts,
 	})
 
+	var metricsCertWatcher *certwatcher.CertWatcher
+
+	metricsServerOptions := metricsserver.Options{
+		BindAddress:   metricsAddr,
+		SecureServing: secureMetrics,
+		TLSOpts:       []func(*tls.Config){},
+	}
+
+	if secureMetrics {
+		// FilterProvider is used to protect the metrics endpoint with authn/authz.
+		// These configurations ensure that only authorized users and service accounts
+		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
+		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.4/pkg/metrics/filters#WithAuthenticationAndAuthorization
+		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
+	}
+
+	if len(metricsCertPath) > 0 {
+		cmd.Println("Initializing metrics certificate watcher using provided certificates",
+			"metrics-cert-path", metricsCertPath, "metrics-cert-name", metricsCertName, "metrics-cert-key", metricsCertKey)
+
+		var err error
+		metricsCertWatcher, err = certwatcher.New(
+			filepath.Join(metricsCertPath, metricsCertName),
+			filepath.Join(metricsCertPath, metricsCertKey),
+		)
+		if err != nil {
+			cmd.Println("failed to initialize metrics certificate watcher", "error", err)
+			os.Exit(1)
+		}
+
+		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, func(config *tls.Config) {
+			config.GetCertificate = metricsCertWatcher.GetCertificate
+		})
+	}
+
 	restConf := ctrl.GetConfigOrDie()
 	mgr, err := ctrl.NewManager(restConf, ctrl.Options{
-		Scheme: scheme,
-		Metrics: server.Options{
-			BindAddress: metricsAddr,
-		},
+		Scheme:                 scheme,
+		Metrics:                metricsServerOptions,
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
@@ -194,6 +238,14 @@ func runController(cmd *cobra.Command, _ []string) error {
 	}
 
 	//+kubebuilder:scaffold:builder
+
+	if metricsCertWatcher != nil {
+		cmd.Println("Adding metrics certificate watcher to manager")
+		if err := mgr.Add(metricsCertWatcher); err != nil {
+			cmd.Println("unable to add metrics certificate watcher to manager", err)
+			os.Exit(1)
+		}
+	}
 
 	if webhookCertWatcher != nil {
 		cmd.Println("Adding webhook certificate watcher to manager")
