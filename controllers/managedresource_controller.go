@@ -248,10 +248,16 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 	var managedResource espejotev1alpha1.ManagedResource
 	if err := r.Get(ctx, req.NamespacedName, &managedResource); err != nil {
 		if apierrors.IsNotFound(err) {
+			l.Info("ManagedResource is no longer available, stopping cache")
 			r.stopAndRemoveCacheFor(req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
+	}
+	if !managedResource.DeletionTimestamp.IsZero() {
+		l.Info("ManagedResource is being deleted, stopping cache")
+		r.stopAndRemoveCacheFor(req.NamespacedName)
+		return ctrl.Result{}, nil
 	}
 
 	ci, err := r.cacheFor(ctx, managedResource)
@@ -838,7 +844,7 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 		if success {
 			dc.cacheReady = nil
 		} else {
-			dc.cacheReady = ErrFailedSyncCache
+			dc.cacheReady = fmt.Errorf("failed to sync cache for %q: %w", watchTarget.GroupVersionKind(), ErrFailedSyncCache)
 		}
 	}()
 

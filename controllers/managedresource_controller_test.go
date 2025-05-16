@@ -207,6 +207,78 @@ if esp.triggerName() == "ns" then [{
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
+	t.Run("managed resource deletion", func(t *testing.T) {
+		t.Parallel()
+
+		testns := testutil.TmpNamespace(t, c)
+
+		otherCM := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "other",
+				Namespace: testns,
+			},
+			Data: map[string]string{
+				"test": "test",
+			},
+		}
+		require.NoError(t, c.Create(ctx, otherCM))
+
+		res := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Context: []espejotev1alpha1.ManagedResourceContext{{
+					Name: "configmap",
+					Resource: espejotev1alpha1.ContextResource{
+						APIVersion: "v1",
+						Kind:       "ConfigMap",
+						Name:       "other",
+					},
+				}},
+				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
+					{
+						Name: "configmap",
+						WatchContextResource: espejotev1alpha1.WatchContextResource{
+							Name: "configmap",
+						},
+					},
+				},
+				Template: `[{
+					apiVersion: 'v1',
+					kind: 'ConfigMap',
+					metadata: {
+						name: 'copied',
+					},
+					data: (import "espejote.libsonnet").context().configmap[0].data,
+				}]
+				`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, res))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "copied"}, &cm))
+			assert.Equal(t, "test", cm.Data["test"])
+		}, 5*time.Second, 100*time.Millisecond)
+
+		t.Log("managed resource in deletion state should stop reconciling")
+		require.NoError(t, c.Patch(ctx, res, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":["go.test/finalizer"]}}`))))
+		require.NoError(t, c.Delete(ctx, res))
+
+		require.NoError(t, c.Patch(ctx, res, client.RawPatch(types.MergePatchType, []byte(`{"data":{"test":"updated"}}`))))
+
+		require.Never(t, func() bool {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "copied"}, &cm))
+			return cm.Data["test"] != "test"
+		}, 2*time.Second, 100*time.Millisecond, "managed resource should stop reconciling if there is a deletion timestamp")
+
+		require.NoError(t, c.Patch(ctx, res, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":null}}`))))
+	})
+
 	t.Run("reconcile from added watch resource trigger", func(t *testing.T) {
 		t.Parallel()
 
