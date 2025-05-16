@@ -248,7 +248,7 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 	var managedResource espejotev1alpha1.ManagedResource
 	if err := r.Get(ctx, req.NamespacedName, &managedResource); err != nil {
 		if apierrors.IsNotFound(err) {
-			r.stopAndRemoveCacheFor(managedResource)
+			r.stopAndRemoveCacheFor(req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
@@ -370,12 +370,11 @@ func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, req 
 var ErrCacheNotReady = errors.New("cache not ready")
 var ErrFailedSyncCache = errors.New("failed to sync cache")
 
-// stopAndRemoveCacheFor stops and removes the cache for the given ManagedResource.
-func (r *ManagedResourceReconciler) stopAndRemoveCacheFor(mr espejotev1alpha1.ManagedResource) {
-	k := client.ObjectKeyFromObject(&mr)
-
+// stopAndRemoveCacheFor stops and removes the cache for the given ManagedResource reference.
+// It is safe to call this function even if the cache does not exist.
+func (r *ManagedResourceReconciler) stopAndRemoveCacheFor(mr client.ObjectKey) {
 	r.cachesMux.RLock()
-	_, ok := r.caches[k]
+	_, ok := r.caches[mr]
 	if !ok {
 		r.cachesMux.RUnlock()
 		return
@@ -385,12 +384,12 @@ func (r *ManagedResourceReconciler) stopAndRemoveCacheFor(mr espejotev1alpha1.Ma
 	r.cachesMux.Lock()
 	defer r.cachesMux.Unlock()
 
-	ci, ok := r.caches[k]
+	ci, ok := r.caches[mr]
 	if !ok {
 		return
 	}
 	ci.Stop()
-	delete(r.caches, k)
+	delete(r.caches, mr)
 }
 
 // cacheFor returns the cache for the given ManagedResource.
