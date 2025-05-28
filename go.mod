@@ -1,6 +1,6 @@
 module github.com/vshn/espejote
 
-go 1.24
+go 1.24.0
 
 toolchain go1.24.3
 
@@ -18,7 +18,7 @@ require (
 	go.uber.org/multierr v1.11.0
 	gomodules.xyz/jsonpatch/v2 v2.5.0
 	k8s.io/api v0.32.3
-	k8s.io/apimachinery v0.32.3
+	k8s.io/apimachinery v0.33.0
 	k8s.io/client-go v0.32.3
 	k8s.io/utils v0.0.0-20250321185631-1f6e0b77f77e
 	sigs.k8s.io/controller-runtime v0.20.4
@@ -60,7 +60,6 @@ require (
 	github.com/google/cel-go v0.22.0 // indirect
 	github.com/google/gnostic-models v0.6.9 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.20.0 // indirect
@@ -129,7 +128,7 @@ require (
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.0 // indirect
-	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250211091558-894df3a7e664 // indirect
+	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250528212017-1dce6213f6c0 // indirect
 	sigs.k8s.io/controller-tools v0.17.2 // indirect
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
 	sigs.k8s.io/kustomize/api v0.19.0 // indirect
