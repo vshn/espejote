@@ -74,7 +74,7 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		JsonnetLibraryNamespace: "jsonnetlibs",
 		Recorder:                mgr.GetEventRecorderFor("managed-resource-controller"),
 	}
-	require.NoError(t, subject.Setup(cfg, mgr))
+	require.NoError(t, subject.Setup(cfg, mgr, 10))
 	metrics.Registry.MustRegister(&CacheSizeCollector{ManagedResourceReconciler: subject})
 
 	mgrCtx, mgrCancel := context.WithCancel(ctx)
@@ -1530,21 +1530,6 @@ if esp.triggerName() == 'trigger' then {
 
 		testns := testutil.TmpNamespace(t, c)
 
-		for i := range 100 {
-			cm := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test" + strconv.Itoa(i),
-					Namespace: testns,
-				},
-			}
-			if i%2 == 0 {
-				cm.Labels = map[string]string{
-					"managed": "true",
-				}
-			}
-			require.NoError(t, c.Create(ctx, cm))
-		}
-
 		mr := &espejotev1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test",
@@ -1582,6 +1567,26 @@ if esp.triggerName() == 'trigger' then {
 		}
 		require.NoError(t, c.Create(ctx, mr))
 
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			assert.Equal(t, "Ready", mr.Status.Status)
+		}, 5*time.Second, 100*time.Millisecond)
+
+		for i := range 100 {
+			cm := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test" + strconv.Itoa(i),
+					Namespace: testns,
+				},
+			}
+			if i%2 == 0 {
+				cm.Labels = map[string]string{
+					"managed": "true",
+				}
+			}
+			require.NoError(t, c.Create(ctx, cm))
+		}
+
 		inNsGatherer := filteringGatherer{
 			gatherer: urlGatherer(fmt.Sprintf("http://localhost:%d/metrics", metricsPort)),
 			filter: func(mf *dto.MetricFamily, m *dto.Metric) bool {
@@ -1602,9 +1607,9 @@ espejote_cached_objects{managedresource="test",name="cms",namespace="`+testns+`"
 espejote_cached_objects{managedresource="test",name="matching-cms",namespace="`+testns+`",type="trigger"} 2
 # HELP espejote_cache_size_bytes Size of the cache in bytes. Note that this is an approximation. The metric should not be compared across different espejote versions.
 # TYPE espejote_cache_size_bytes gauge
-espejote_cache_size_bytes{managedresource="test",name="all-cms",namespace="`+testns+`",type="context"} 67375
-espejote_cache_size_bytes{managedresource="test",name="cms",namespace="`+testns+`",type="context"} 36930
-espejote_cache_size_bytes{managedresource="test",name="matching-cms",namespace="`+testns+`",type="trigger"} 1527
+espejote_cache_size_bytes{managedresource="test",name="all-cms",namespace="`+testns+`",type="context"} 69864
+espejote_cache_size_bytes{managedresource="test",name="cms",namespace="`+testns+`",type="context"} 38169
+espejote_cache_size_bytes{managedresource="test",name="matching-cms",namespace="`+testns+`",type="trigger"} 1566
 # HELP espejote_reconciles_total Total number of reconciles by trigger.
 # TYPE espejote_reconciles_total counter
 espejote_reconciles_total{managedresource="test",namespace="`+testns+`",trigger="matching-cms"} 2
@@ -1661,7 +1666,7 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingCache(t *testing.T) {
 		Recorder:                mgr.GetEventRecorderFor("managed-resource-controller"),
 		newCacheFunction:        newSlowCachefunc,
 	}
-	require.NoError(t, subject.SetupWithName(cfg, mgr, "slow_client"))
+	require.NoError(t, subject.SetupWithName(cfg, mgr, "slow_client", 10))
 
 	mgrCtx, mgrCancel := context.WithCancel(ctx)
 	t.Cleanup(mgrCancel)
