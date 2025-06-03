@@ -521,12 +521,12 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 }
 
 // Setup sets up the controller with the Manager.
-func (r *ManagedResourceReconciler) Setup(cfg *rest.Config, mgr ctrl.Manager) error {
-	return r.SetupWithName(cfg, mgr, "managed_resource")
+func (r *ManagedResourceReconciler) Setup(cfg *rest.Config, mgr ctrl.Manager, maxConcurrentReconciles int) error {
+	return r.SetupWithName(cfg, mgr, "managed_resource", maxConcurrentReconciles)
 }
 
 // SetupWithName sets up the controller with the Manager and a name for the global metrics registry.
-func (r *ManagedResourceReconciler) SetupWithName(cfg *rest.Config, mgr ctrl.Manager, name string) error {
+func (r *ManagedResourceReconciler) SetupWithName(cfg *rest.Config, mgr ctrl.Manager, name string, maxConcurrentReconciles int) error {
 	c, err := builder.TypedControllerManagedBy[Request](mgr).
 		Named(name).
 		Watches(&espejotev1alpha1.ManagedResource{}, handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, a client.Object) []Request {
@@ -539,6 +539,9 @@ func (r *ManagedResourceReconciler) SetupWithName(cfg *rest.Config, mgr ctrl.Man
 				},
 			}
 		})).
+		WithOptions(controller.TypedOptions[Request]{
+			MaxConcurrentReconciles: maxConcurrentReconciles,
+		}).
 		Build(r)
 	if err != nil {
 		return fmt.Errorf("failed to setup controller: %w", err)

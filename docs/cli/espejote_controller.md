@@ -22,6 +22,7 @@ espejote controller [flags]
   -h, --help                                            help for controller
       --jsonnet-library-namespace lib/                  The namespace to look for shared (lib/) Jsonnet libraries in. (default "default")
       --leader-elect                                    Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.
+      --max-concurrent-reconciles int                   The maximum number of concurrent reconciles that the controller manager will run.  (default 10)
       --metrics-bind-address string                     The address the metric endpoint binds to. (default ":8080")
       --metrics-cert-key string                         The name of the metrics server key file. (default "tls.key")
       --metrics-cert-name string                        The name of the metrics server certificate file. (default "tls.crt")
