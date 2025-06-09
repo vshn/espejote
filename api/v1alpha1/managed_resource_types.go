@@ -260,6 +260,9 @@ type ManagedResourceContext struct {
 	// Resource defines the resource that should be added to the context.
 	// Adds a list of zero or more resources to the context.
 	Resource ContextResource `json:"resource,omitempty"`
+
+	// Plugin defines the plugin that should be used to add the resource to the context.
+	Plugin ContextPlugin `json:"plugin,omitempty"`
 }
 
 var _ ClusterResource = ContextResource{}
@@ -354,6 +357,15 @@ func (t ContextResource) String() string {
 		ns = fmt.Sprintf("%q", *t.Namespace)
 	}
 	return fmt.Sprintf("type=%q,name=%q,namespace=%s", gvk, t.Name, ns)
+}
+
+type ContextPlugin struct {
+	// Name is the name of the plugin that should be used to add the resource to the context.
+	// The plugin must be registered with the controller using the Plugin CRD.
+	Name string `json:"name,omitempty"`
+
+	// Data is the data that should be passed to the plugin.
+	Data map[string]string `json:"data,omitempty"`
 }
 
 // ManagedResourceStatus defines the observed state of ManagedResource
