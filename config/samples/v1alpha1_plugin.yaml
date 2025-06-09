@@ -1,0 +1,10 @@
+---
+apiVersion: espejote.io/v1alpha1
+kind: Plugin
+metadata:
+  labels:
+    app.kubernetes.io/name: espejote
+    app.kubernetes.io/managed-by: kustomize
+  name: plugin-sample
+spec:
+  module: ghcr.io/bastjan/espejote-plugin-myip

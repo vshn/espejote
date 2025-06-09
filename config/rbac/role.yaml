@@ -48,6 +48,7 @@ rules:
   resources:
   - admissions/finalizers
   - managedresources/finalizers
+  - plugins/finalizers
   verbs:
   - update
 - apiGroups:
@@ -55,6 +56,7 @@ rules:
   resources:
   - admissions/status
   - managedresources/status
+  - plugins/status
   verbs:
   - get
   - patch
@@ -63,6 +65,7 @@ rules:
   - espejote.io
   resources:
   - jsonnetlibraries
+  - plugins
   verbs:
   - get
   - list

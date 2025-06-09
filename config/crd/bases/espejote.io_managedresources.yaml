@@ -87,6 +87,22 @@ spec:
                         context can be referenced in the template by this name.
                       minLength: 1
                       type: string
+                    plugin:
+                      description: Plugin defines the plugin that should be used to
+                        add the resource to the context.
+                      properties:
+                        data:
+                          additionalProperties:
+                            type: string
+                          description: Data is the data that should be passed to the
+                            plugin.
+                          type: object
+                        name:
+                          description: |-
+                            Name is the name of the plugin that should be used to add the resource to the context.
+                            The plugin must be registered with the controller using the Plugin CRD.
+                          type: string
+                      type: object
                     resource:
                       description: |-
                         Resource defines the resource that should be added to the context.

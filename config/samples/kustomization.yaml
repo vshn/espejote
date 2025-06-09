@@ -3,4 +3,6 @@ resources:
 - v1alpha1_admission.yaml
 - v1alpha1_jsonnetlibrary.yaml
 - v1alpha1_managedresource.yaml
+- v1alpha1_managedresource_with_plugin.yaml
+- v1alpha1_plugin.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

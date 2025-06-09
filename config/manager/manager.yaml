@@ -45,6 +45,7 @@ spec:
       - args:
         - controller
         - --leader-elect
+        - --alpha-plugins-dir=/plugins
         env:
         - name: POD_NAMESPACE
           valueFrom:
@@ -71,13 +72,17 @@ spec:
           periodSeconds: 10
         resources:
           limits:
-            cpu: 100m
+            # No limit as initial WASM compile and Jsonnet compile tend to be a bit peaky and gets affected by the scheduler overhead from cgroup limits.
             memory: 128Mi
           requests:
             cpu: 10m
             memory: 32Mi
-        volumeMounts: []
+        volumeMounts:
+        - name: plugins
+          mountPath: /plugins
         ports: []
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
-      volumes: []
+      volumes:
+      - name: plugins
+        emptyDir: {}
