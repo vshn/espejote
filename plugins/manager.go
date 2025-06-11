@@ -71,6 +71,10 @@ type runner struct {
 	ref        string
 	digest     string
 
+	// Used to expire the runner if the underlying plugin changes.
+	myHandle      v1.Descriptor
+	currentHandle atomic.Value
+
 	runtime        wazero.Runtime
 	compiledModule wazero.CompiledModule
 
@@ -87,7 +91,15 @@ func (r *runner) Close() {
 }
 
 func (r *runner) Expired(lifetimeTimeout time.Duration) bool {
-	return lifetimeTimeout > 0 && time.Until(r.creationTime.Add(lifetimeTimeout)) < 0
+	if lifetimeTimeout > 0 && time.Until(r.creationTime.Add(lifetimeTimeout)) < 0 {
+		fmt.Println("Plugin runner expired due to lifetime timeout")
+		return true
+	}
+	if !content.Equal(r.myHandle, r.currentHandle.Load().(v1.Descriptor)) {
+		fmt.Println("Plugin runner expired due to plugin change")
+		return true
+	}
+	return false
 }
 
 func (r *runner) Run(ctx context.Context, args []string) (string, string, error) {
@@ -260,14 +272,20 @@ func (m *Manager) RegisterPlugin(ctx context.Context, name, ref string) error {
 				return nil, fmt.Errorf("failed to compile WASM module for plugin %q: %w", ref, err)
 			}
 			return &runner{
-				pluginName:     name,
-				ref:            ref,
-				digest:         handle.Digest.String(),
+				pluginName: name,
+				ref:        ref,
+				digest:     handle.Digest.String(),
+
+				myHandle:      handle,
+				currentHandle: pluginStorageHandle,
+
 				runtime:        runtime,
 				compiledModule: wasmModule,
 				creationTime:   time.Now(),
 			}, nil
 		}
+
+		refreshInterval := 5 * time.Minute
 
 		pool := pools.NewResourcePool(
 			factory,
@@ -275,11 +293,14 @@ func (m *Manager) RegisterPlugin(ctx context.Context, name, ref string) error {
 			10,
 			5*time.Minute,
 			time.Hour,
-			func(_ time.Time) {
-				fmt.Printf("Waiting to get CompiledModule from pool %q\n", name)
+			func(waitStart time.Time) {
+				fmt.Printf("Pool %q waiting for %s\n", name, time.Since(waitStart))
 			},
 			func() (bool, error) {
-				fmt.Println("Test plugin refresh")
+				l := log.Log.WithName("pluginPool.refresh").WithValues("plugin", name, "ref", ref)
+				l.Info("Background refresh of plugin", "interval", refreshInterval)
+				ctx, cancel := context.WithTimeout(log.IntoContext(context.Background(), l), refreshInterval)
+				defer cancel()
 
 				psh, err := m.ensurePlugin(ctx, ref)
 				if err != nil {
@@ -288,10 +309,11 @@ func (m *Manager) RegisterPlugin(ctx context.Context, name, ref string) error {
 				if content.Equal(psh, pluginStorageHandle.Load().(v1.Descriptor)) {
 					return false, nil // No change in the plugin, no need to update.
 				}
+				l.Info("Plugin updated")
 				pluginStorageHandle.Store(psh)
 				return true, nil
 			},
-			0,
+			refreshInterval,
 		)
 		return pool, nil
 	})
