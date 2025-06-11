@@ -30,3 +30,8 @@ contrib/
 *.swp
 *.swo
 *~
+
+**/testdata/**/*.wasm
+
+# Plugin cache
+plugin-store

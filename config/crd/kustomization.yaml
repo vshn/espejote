@@ -5,6 +5,7 @@ resources:
 - bases/espejote.io_admissions.yaml
 - bases/espejote.io_managedresources.yaml
 - bases/espejote.io_jsonnetlibraries.yaml
+- bases/espejote.io_plugins.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 # the following config is for teaching kustomize how to do kustomization for CRDs.

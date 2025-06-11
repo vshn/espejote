@@ -17,6 +17,7 @@ Package v1alpha1 contains API Schema definitions for the espejote.io v1alpha1 AP
 - xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-admission[$$Admission$$]
 - xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-jsonnetlibrary[$$JsonnetLibrary$$]
 - xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresource[$$ManagedResource$$]
+- xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-plugin[$$Plugin$$]
 
 
 
@@ -116,6 +117,29 @@ Defaults to "Strict". + | Strict | Enum: [Ignore Strict] +
 |===
 
 
+
+
+[id="{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-contextplugin"]
+==== ContextPlugin
+
+
+
+
+
+
+
+.Appears In:
+****
+- xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-managedresourcecontext[$$ManagedResourceContext$$]
+****
+
+[cols="20a,50a,15a,15a", options="header"]
+|===
+| Field | Description | Default | Validation
+| *`name`* __string__ | Name is the name of the plugin that should be used to add the resource to the context. +
+The plugin must be registered with the controller using the Plugin CRD. + |  | 
+| *`data`* __object (keys:string, values:string)__ | Data is the data that should be passed to the plugin. + |  | 
+|===
 
 
 [id="{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-contextresource"]
@@ -253,6 +277,7 @@ ManagedResource is the Schema for the ManagedResources API
 
 | *`resource`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-contextresource[$$ContextResource$$]__ | Resource defines the resource that should be added to the context. +
 Adds a list of zero or more resources to the context. + |  | 
+| *`plugin`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-contextplugin[$$ContextPlugin$$]__ | Plugin defines the plugin that should be used to add the resource to the context. + |  | 
 |===
 
 
@@ -381,6 +406,73 @@ netpolForNs(esp.triggerData().resource), +
 netpolForNs(ns) +
 for ns in esp.context().namespaces +
 ] + |  | 
+|===
+
+
+[id="{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-plugin"]
+==== Plugin
+
+
+
+Plugin is the Schema for the Plugins API.
+
+
+
+
+
+[cols="20a,50a,15a,15a", options="header"]
+|===
+| Field | Description | Default | Validation
+| *`apiVersion`* __string__ | `espejote.io/v1alpha1` | |
+| *`kind`* __string__ | `Plugin` | |
+| *`metadata`* __link:https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#objectmeta-v1-meta[$$ObjectMeta$$]__ | Refer to Kubernetes API documentation for fields of `metadata`.
+ |  | 
+| *`spec`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-pluginspec[$$PluginSpec$$]__ |  |  | 
+| *`status`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-pluginstatus[$$PluginStatus$$]__ |  |  | 
+|===
+
+
+[id="{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-pluginspec"]
+==== PluginSpec
+
+
+
+PluginSpec defines the desired state of Plugin.
+
+
+
+.Appears In:
+****
+- xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-plugin[$$Plugin$$]
+****
+
+[cols="20a,50a,15a,15a", options="header"]
+|===
+| Field | Description | Default | Validation
+| *`module`* __string__ | Module is the location of the WASM module to be loaded. +
+Can be an artifact served by an OCI-compatible registry (registry://). +
+If prefix is missing, it will default to registry://. + |  | 
+|===
+
+
+[id="{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-pluginstatus"]
+==== PluginStatus
+
+
+
+PluginStatus defines the observed state of Plugin.
+
+
+
+.Appears In:
+****
+- xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-plugin[$$Plugin$$]
+****
+
+[cols="20a,50a,15a,15a", options="header"]
+|===
+| Field | Description | Default | Validation
+| *`status`* __string__ | Status reports the last overall status of the plugin. + |  | 
 |===
 
 

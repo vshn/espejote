@@ -13,6 +13,8 @@ espejote controller [flags]
 ### Options
 
 ```
+      --alpha-plugins                                   Enable alpha plugins. This is a temporary flag to enable alpha plugins until they are stable and can be enabled by default.
+      --alpha-plugins-dir string                        The directory where alpha plugins are stored. (default "plugin-store")
       --controller-namespace string                     The namespace the controller runs in. (default "default")
       --dynamic-admission-webhook-name string           The name of the dynamic admission webhook. (default "espejote-dynamic-webhook")
       --dynamic-admission-webhook-port int32            The port the dynamic admission webhook listens on. (default 9443)
