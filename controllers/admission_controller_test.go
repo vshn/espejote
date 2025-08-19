@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -101,10 +102,27 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, &mut))
 
+	require.NoError(t, c.Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "zzz-" + testns,
+		},
+	}))
+	mut2 := espejotev1alpha1.Admission{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mut",
+			Namespace: "zzz-" + testns,
+		},
+		Spec: espejotev1alpha1.AdmissionSpec{
+			Mutating:             true,
+			WebhookConfiguration: *val.Spec.WebhookConfiguration.DeepCopy(),
+		},
+	}
+	require.NoError(t, c.Create(ctx, &mut2))
+
 	var mutwebhook admissionregistrationv1.MutatingWebhookConfiguration
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		require.NoError(t, c.Get(ctx, client.ObjectKey{Name: webhookName}, &mutwebhook))
-		require.Len(t, mutwebhook.Webhooks, 1)
+		require.Len(t, mutwebhook.Webhooks, 2)
 	}, 5*time.Second, 10*time.Millisecond)
 	assert.Equal(t, strings.Join([]string{"mut", testns, "espejote.io"}, "."), mutwebhook.Webhooks[0].Name)
 	assert.Equal(t, "system", mutwebhook.Webhooks[0].ClientConfig.Service.Namespace)
@@ -125,6 +143,7 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 
 	require.NoError(t, c.Delete(ctx, &val2))
 	require.NoError(t, c.Delete(ctx, &mut))
+	require.NoError(t, c.Delete(ctx, &mut2))
 
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		require.NoError(t, c.Get(ctx, client.ObjectKey{Name: webhookName}, &valwebhook))

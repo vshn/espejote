@@ -49,9 +49,11 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ admissionRequest)
 		return ctrl.Result{}, fmt.Errorf("failed to list admissions: %w", err)
 	}
 
-	var validatingAdmissions []espejotev1alpha1.Admission
-	var mutatingAdmissions []espejotev1alpha1.Admission
-
+	slices.SortFunc(admissions.Items, func(a, b espejotev1alpha1.Admission) int {
+		return 10*strings.Compare(a.GetNamespace(), b.GetNamespace()) + strings.Compare(a.GetName(), b.GetName())
+	})
+	validatingAdmissions := make([]espejotev1alpha1.Admission, 0, len(admissions.Items))
+	mutatingAdmissions := make([]espejotev1alpha1.Admission, 0, len(admissions.Items))
 	for _, admission := range admissions.Items {
 		if admission.Spec.Mutating {
 			mutatingAdmissions = append(mutatingAdmissions, admission)
@@ -59,12 +61,6 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ admissionRequest)
 			validatingAdmissions = append(validatingAdmissions, admission)
 		}
 	}
-	slices.SortFunc(validatingAdmissions, func(a, b espejotev1alpha1.Admission) int {
-		return strings.Compare(a.GetName(), b.GetName())
-	})
-	slices.SortFunc(mutatingAdmissions, func(a, b espejotev1alpha1.Admission) int {
-		return strings.Compare(a.GetName(), b.GetName())
-	})
 
 	mutwebhook := &admissionregistrationv1.MutatingWebhookConfiguration{}
 	mutwebhook.SetGroupVersionKind(admissionregistrationv1.SchemeGroupVersion.WithKind("MutatingWebhookConfiguration"))
