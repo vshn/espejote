@@ -9,14 +9,12 @@ import (
 
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
 )
@@ -33,6 +31,8 @@ type AdmissionReconciler struct {
 	ControllerNamespace string
 }
 
+type admissionRequest struct{}
+
 //+kubebuilder:rbac:groups=espejote.io,resources=admissions,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=espejote.io,resources=admissions/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=espejote.io,resources=admissions/finalizers,verbs=update
@@ -40,7 +40,7 @@ type AdmissionReconciler struct {
 //+kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations;validatingwebhookconfigurations,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile adds admissions to the MutatingWebhookConfiguration and ValidatingWebhookConfigurations.
-func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ reconcile.Request) (ctrl.Result, error) {
+func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ admissionRequest) (ctrl.Result, error) {
 	l := log.FromContext(ctx).WithName("AdmissionReconciler.reconcile")
 	l.Info("Reconciling Admission")
 
@@ -142,27 +142,14 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ reconcile.Request
 
 // Setup sets up the controller with the Manager.
 func (r *AdmissionReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return builder.ControllerManagedBy(mgr).
-		For(&espejotev1alpha1.Admission{}).
-		Watches(&admissionregistrationv1.MutatingWebhookConfiguration{}, handler.EnqueueRequestsFromMapFunc(mapToAllAdmissions(mgr.GetClient()))).
-		Watches(&admissionregistrationv1.ValidatingWebhookConfiguration{}, handler.EnqueueRequestsFromMapFunc(mapToAllAdmissions(mgr.GetClient()))).
+	return builder.TypedControllerManagedBy[admissionRequest](mgr).
+		Named("admission").
+		Watches(&espejotev1alpha1.Admission{}, handler.TypedEnqueueRequestsFromMapFunc(singleAdmissionRequest)).
+		Watches(&admissionregistrationv1.MutatingWebhookConfiguration{}, handler.TypedEnqueueRequestsFromMapFunc(singleAdmissionRequest)).
+		Watches(&admissionregistrationv1.ValidatingWebhookConfiguration{}, handler.TypedEnqueueRequestsFromMapFunc(singleAdmissionRequest)).
 		Complete(r)
 }
 
-func mapToAllAdmissions(c client.Reader) func(_ context.Context, _ client.Object) []reconcile.Request {
-	return func(_ context.Context, _ client.Object) []reconcile.Request {
-		var admissions espejotev1alpha1.AdmissionList
-		if err := c.List(context.Background(), &admissions); err != nil {
-			log.FromContext(context.Background()).Error(err, "Failed to list Admissions")
-			return nil
-		}
-		reqs := make([]reconcile.Request, len(admissions.Items))
-		for i := range admissions.Items {
-			reqs[i].NamespacedName = types.NamespacedName{
-				Namespace: admissions.Items[i].Namespace,
-				Name:      admissions.Items[i].Name,
-			}
-		}
-		return reqs
-	}
+func singleAdmissionRequest(context.Context, client.Object) []admissionRequest {
+	return make([]admissionRequest, 1)
 }
