@@ -57,6 +57,11 @@ docker_manifests:
       - "{{ .Env.REGISTRY }}/{{ .Env.IMAGE_NAME }}:v{{ .Version }}-amd64"
       - "{{ .Env.REGISTRY }}/{{ .Env.IMAGE_NAME }}:v{{ .Version }}-arm64"
 
+docker_signs:
+  - artifacts: manifests
+    args: [ "sign", "--yes", "--key=env://COSIGN_PRIVATE_KEY", "${artifact}" ]
+    stdin: '{{ .Env.COSIGN_PASSWORD }}'
+
 release:
   prerelease: auto
 
