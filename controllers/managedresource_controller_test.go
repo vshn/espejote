@@ -1602,9 +1602,9 @@ espejote_cached_objects{managedresource="test",name="cms",namespace="`+testns+`"
 espejote_cached_objects{managedresource="test",name="matching-cms",namespace="`+testns+`",type="trigger"} 2
 # HELP espejote_cache_size_bytes Size of the cache in bytes. Note that this is an approximation. The metric should not be compared across different espejote versions.
 # TYPE espejote_cache_size_bytes gauge
-espejote_cache_size_bytes{managedresource="test",name="all-cms",namespace="`+testns+`",type="context"} 67375
-espejote_cache_size_bytes{managedresource="test",name="cms",namespace="`+testns+`",type="context"} 36930
-espejote_cache_size_bytes{managedresource="test",name="matching-cms",namespace="`+testns+`",type="trigger"} 1527
+espejote_cache_size_bytes{managedresource="test",name="all-cms",namespace="`+testns+`",type="context"} 67522
+espejote_cache_size_bytes{managedresource="test",name="cms",namespace="`+testns+`",type="context"} 37077
+espejote_cache_size_bytes{managedresource="test",name="matching-cms",namespace="`+testns+`",type="trigger"} 1674
 # HELP espejote_reconciles_total Total number of reconciles by trigger.
 # TYPE espejote_reconciles_total counter
 espejote_reconciles_total{managedresource="test",namespace="`+testns+`",trigger="matching-cms"} 2
