@@ -137,13 +137,23 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ admissionRequest)
 }
 
 // Setup sets up the controller with the Manager.
+// All fields must be populated before calling this function.
 func (r *AdmissionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return builder.TypedControllerManagedBy[admissionRequest](mgr).
 		Named("admission").
 		Watches(&espejotev1alpha1.Admission{}, handler.TypedEnqueueRequestsFromMapFunc(singleAdmissionRequest)).
-		Watches(&admissionregistrationv1.MutatingWebhookConfiguration{}, handler.TypedEnqueueRequestsFromMapFunc(singleAdmissionRequest)).
-		Watches(&admissionregistrationv1.ValidatingWebhookConfiguration{}, handler.TypedEnqueueRequestsFromMapFunc(singleAdmissionRequest)).
+		Watches(&admissionregistrationv1.MutatingWebhookConfiguration{}, handler.TypedEnqueueRequestsFromMapFunc(filterRequestByName(r.MutatingWebhookName, singleAdmissionRequest))).
+		Watches(&admissionregistrationv1.ValidatingWebhookConfiguration{}, handler.TypedEnqueueRequestsFromMapFunc(filterRequestByName(r.ValidatingWebhookName, singleAdmissionRequest))).
 		Complete(r)
+}
+
+func filterRequestByName(name string, next func(context.Context, client.Object) []admissionRequest) func(context.Context, client.Object) []admissionRequest {
+	return func(ctx context.Context, o client.Object) []admissionRequest {
+		if o.GetName() == name {
+			return next(ctx, o)
+		}
+		return nil
+	}
 }
 
 func singleAdmissionRequest(context.Context, client.Object) []admissionRequest {
