@@ -57,6 +57,14 @@ docker_manifests:
       - "{{ .Env.REGISTRY }}/{{ .Env.IMAGE_NAME }}:v{{ .Version }}-amd64"
       - "{{ .Env.REGISTRY }}/{{ .Env.IMAGE_NAME }}:v{{ .Version }}-arm64"
 
+docker_signs:
+  - artifacts: manifests
+    args:
+      - sign
+      - --yes
+      - --oidc-provider=github-actions
+      - "${artifact}"
+
 release:
   prerelease: auto
 
@@ -64,6 +72,7 @@ brews:
   - repository:
       owner: vshn
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_REPO_TOKEN }}"
     directory: Formula
     homepage: "https://github.com/vshn/espejote"
     description: An in-cluster templating controller.
