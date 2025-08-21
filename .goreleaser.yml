@@ -59,8 +59,11 @@ docker_manifests:
 
 docker_signs:
   - artifacts: manifests
-    args: [ "sign", "--yes", "--key=env://COSIGN_PRIVATE_KEY", "${artifact}" ]
-    stdin: '{{ .Env.COSIGN_PASSWORD }}'
+    args:
+      - sign
+      - --yes
+      - --oidc-provider=github-actions
+      - "${artifact}"
 
 release:
   prerelease: auto
@@ -69,6 +72,7 @@ brews:
   - repository:
       owner: vshn
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_REPO_TOKEN }}"
     directory: Formula
     homepage: "https://github.com/vshn/espejote"
     description: An in-cluster templating controller.

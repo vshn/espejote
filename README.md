@@ -14,6 +14,19 @@ kubectl apply -k config/crd
 kubectl apply -k config/default
 ```
 
+#### Image signature verification
+
+Espejote images are signed using [Cosign](https://github.com/sigstore/cosign). Espejote uses the [Keyless signing](https://docs.sigstore.dev/cosign/signing/overview/) feature of Cosign using the GitHub Action token for attestation.
+
+You can verify the image signatures using the Cosign CLI:
+
+```sh
+TAG=vX.X.X
+cosign verify "ghcr.io/vshn/espejote:${TAG}" \
+  --certificate-identity "https://github.com/vshn/espejote/.github/workflows/release.yml@refs/tags/${TAG}" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+```
+
 ### CLI using Homebrew
 
 Works on macOS and Linux.

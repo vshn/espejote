@@ -8,6 +8,10 @@ on:
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to publish a release
+      packages: write # Required to push the docker images
+      id-token: write # Required for Cosign Keyless OIDC flow
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,6 +26,10 @@ jobs:
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3.9.2
+
+      - name: Check Cosign installation
+        shell: bash
+        run: cosign version
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -54,8 +62,13 @@ jobs:
         with:
           args: release --release-notes .github/release-notes.md
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_REPO_TOKEN: ${{ secrets.RELEASE_GH_PAT }}
           REGISTRY: ghcr.io
           IMAGE_NAME: ${{ github.repository }}
-          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+
+      - name: Verify image signature
+        run: |
+          cosign verify ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
+            --certificate-identity "https://github.com/${{ github.workflow_ref }}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
