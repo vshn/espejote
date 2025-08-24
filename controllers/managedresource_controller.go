@@ -32,6 +32,7 @@ import (
 	"k8s.io/client-go/rest"
 	toolscache "k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -39,7 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -854,31 +854,33 @@ func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context
 // setupIntervalTrigger sets up a trigger that fires every interval.
 // The trigger is enqueued with the ManagedResource's key and the trigger index.
 // The trigger is shut down when the context is canceled.
-func (r *ManagedResourceReconciler) setupIntervalTrigger(ctx context.Context, interval time.Duration, mrKey types.NamespacedName, triggerName string) error {
-	tick := time.NewTicker(interval)
-	evChan := make(chan event.TypedGenericEvent[time.Time])
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				tick.Stop()
-				close(evChan)
-				return
-			case t := <-tick.C:
+func (r *ManagedResourceReconciler) setupIntervalTrigger(lifetimeCtx context.Context, interval time.Duration, mrKey types.NamespacedName, triggerName string) error {
+	return r.controller.Watch(source.TypedFunc[Request](func(ctx context.Context, queue workqueue.TypedRateLimitingInterface[Request]) error {
+		tick := time.NewTicker(interval)
+		go func() {
+			defer tick.Stop()
+
+			// merge cancellation signals from interval lifetime context and context given by the controller
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			context.AfterFunc(lifetimeCtx, cancel)
+
+			for {
 				select {
 				case <-ctx.Done():
-					tick.Stop()
-					close(evChan)
 					return
-				case evChan <- event.TypedGenericEvent[time.Time]{Object: t}:
+				case <-tick.C:
+					queue.Add(Request{
+						NamespacedName: mrKey,
+						TriggerInfo: TriggerInfo{
+							TriggerName: triggerName,
+						},
+					})
 				}
 			}
-		}
-	}()
-
-	return r.controller.Watch(source.TypedChannel(evChan, handler.TypedEnqueueRequestsFromMapFunc(func(_ context.Context, _ time.Time) []Request {
-		return []Request{{NamespacedName: mrKey, TriggerInfo: TriggerInfo{TriggerName: triggerName}}}
-	})))
+		}()
+		return nil
+	}))
 }
 
 func staticMapFunc(r types.NamespacedName, triggerName string) func(context.Context, client.Object) []Request {
