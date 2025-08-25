@@ -13,7 +13,7 @@ jobs:
       packages: write # Required to push the docker images
       id-token: write # Required for Cosign Keyless OIDC flow
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
