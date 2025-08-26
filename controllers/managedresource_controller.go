@@ -40,10 +40,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
@@ -89,15 +87,6 @@ type ManagedResourceReconciler struct {
 
 	// newCacheFunc is only used for testing
 	newCacheFunction cache.NewCacheFunc
-
-	expControllersMux sync.RWMutex
-	expControllers    map[types.NamespacedName]*resourceController
-}
-
-type resourceController struct {
-	ctrl controller.TypedController[Request]
-	in   chan event.TypedGenericEvent[Request]
-	stop func()
 }
 
 type instanceCache struct {
@@ -208,8 +197,7 @@ const (
 	TemplateError                EspejoteErrorType = "TemplateError"
 	ApplyError                   EspejoteErrorType = "ApplyError"
 	TemplateReturnError          EspejoteErrorType = "TemplateReturnError"
-
-	ControllerPerInstanceExperimentError EspejoteErrorType = "ControllerPerInstanceExperimentError"
+	ControllerInstantiationError EspejoteErrorType = "ControllerInstantiationError"
 )
 
 type EspejoteError struct {
@@ -254,74 +242,6 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 	return result, multierr.Combine(resultErr, r.recordReconcileErr(ctx, req, recErr))
 }
 
-func (r *ManagedResourceReconciler) ensureInstanceControllerFor(mrKey types.NamespacedName) (*resourceController, error) {
-	r.expControllersMux.RLock()
-	if c := r.expControllers[mrKey]; c != nil {
-		r.expControllersMux.RUnlock()
-		return c, nil
-	}
-	r.expControllersMux.RUnlock()
-
-	r.expControllersMux.Lock()
-	defer r.expControllersMux.Unlock()
-	if c := r.expControllers[mrKey]; c != nil {
-		return c, nil
-	}
-
-	expCtrl, err := controller.NewTypedUnmanaged(
-		fmt.Sprintf("mr-exp-%s-%s", mrKey.Namespace, mrKey.Name),
-		controller.TypedOptions[Request]{
-			SkipNameValidation: ptr.To(true),
-			Reconciler: reconcile.TypedFunc[Request](func(_ context.Context, req Request) (ctrl.Result, error) {
-				fmt.Println("!!!! EXP controller", req)
-				return ctrl.Result{}, nil
-			}),
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create exp controller: %w", err)
-	}
-	instanceCtrlCtx, instanceCtrlCancel := context.WithCancel(r.ControllerLifetimeCtx)
-	instanceCtrl := &resourceController{
-		in:   make(chan event.TypedGenericEvent[Request]),
-		ctrl: expCtrl,
-		stop: instanceCtrlCancel,
-	}
-
-	if err := expCtrl.Watch(source.TypedChannel(instanceCtrl.in, handler.TypedEnqueueRequestsFromMapFunc(func(_ context.Context, event Request) []Request {
-		return []Request{event}
-	}))); err != nil {
-		return nil, fmt.Errorf("failed to watch instance %q controller: %w", mrKey, err)
-	}
-	go expCtrl.Start(instanceCtrlCtx)
-	if r.expControllers == nil {
-		r.expControllers = make(map[types.NamespacedName]*resourceController)
-	}
-	r.expControllers[mrKey] = instanceCtrl
-	return instanceCtrl, nil
-}
-
-func (r *ManagedResourceReconciler) stopAndRemoveControllerFor(mrKey types.NamespacedName) error {
-	r.expControllersMux.RLock()
-	_, ok := r.expControllers[mrKey]
-	if !ok {
-		r.expControllersMux.RUnlock()
-		return nil
-	}
-	r.expControllersMux.RUnlock()
-
-	r.expControllersMux.Lock()
-	defer r.expControllersMux.Unlock()
-
-	rc, ok := r.expControllers[mrKey]
-	if !ok {
-		return nil
-	}
-	rc.stop()
-	delete(r.expControllers, mrKey)
-	return nil
-}
-
 func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) (ctrl.Result, error) {
 	l := log.FromContext(ctx).WithName("ManagedResourceReconciler.reconcile")
 	l.Info("Reconciling ManagedResource")
@@ -331,7 +251,6 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 		if apierrors.IsNotFound(err) {
 			l.Info("ManagedResource is no longer available, stopping cache")
 			r.stopAndRemoveCacheFor(req.NamespacedName)
-			r.stopAndRemoveControllerFor(req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
@@ -340,14 +259,6 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 		l.Info("ManagedResource is being deleted, stopping cache")
 		r.stopAndRemoveCacheFor(req.NamespacedName)
 		return ctrl.Result{}, nil
-	}
-
-	{
-		ic, err := r.ensureInstanceControllerFor(req.NamespacedName)
-		if err != nil {
-			return ctrl.Result{}, newEspejoteError(err, ControllerPerInstanceExperimentError)
-		}
-		ic.in <- event.TypedGenericEvent[Request]{Object: req}
 	}
 
 	ci, err := r.cacheFor(ctx, managedResource)

@@ -206,7 +206,7 @@ func runController(cmd *cobra.Command, _ []string) error {
 
 	lifetimeCtx := cmd.Context()
 
-	mrr := &controllers.ManagedResourceReconciler{
+	mrr := &controllers.ManagedResourceControllerManager{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("managed-resource-controller"),
@@ -214,10 +214,10 @@ func runController(cmd *cobra.Command, _ []string) error {
 		ControllerLifetimeCtx:   lifetimeCtx,
 		JsonnetLibraryNamespace: jsonnetLibraryNamespace,
 	}
-	if err := mrr.Setup(restConf, mgr); err != nil {
+	if err := mrr.SetupWithManager(restConf, mgr); err != nil {
 		return fmt.Errorf("unable to create ManagedResource controller: %w", err)
 	}
-	metrics.Registry.MustRegister(&controllers.CacheSizeCollector{ManagedResourceReconciler: mrr})
+	// metrics.Registry.MustRegister(&controllers.CacheSizeCollector{ManagedResourceReconciler: mrr})
 	metrics.Registry.MustRegister(&controllers.ManagedResourceStatusCollector{Reader: mgr.GetClient()})
 
 	if enableDynamicAdmissionWebhook {
