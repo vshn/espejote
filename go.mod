@@ -14,7 +14,7 @@ require (
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.65.0
 	github.com/spf13/cobra v1.9.1
-	github.com/stretchr/testify v1.11.0
+	github.com/stretchr/testify v1.11.1
 	go.uber.org/multierr v1.11.0
 	gomodules.xyz/jsonpatch/v2 v2.5.0
 	k8s.io/api v0.33.4
