@@ -49,9 +49,10 @@ type ManagedResourceControllerManager struct {
 }
 
 type resourceController struct {
-	ctrl controller.TypedController[Request]
-	in   chan event.TypedGenericEvent[Request]
-	stop func()
+	ctrl       controller.TypedController[Request]
+	reconciler *ManagedResourceReconciler
+	in         chan event.TypedGenericEvent[Request]
+	stop       func()
 }
 
 //+kubebuilder:rbac:groups=espejote.io,resources=managedresources,verbs=get;list;watch
@@ -80,7 +81,7 @@ func (r *ManagedResourceControllerManager) Reconcile(ctx context.Context, req re
 		if err != nil {
 			return ctrl.Result{}, newEspejoteError(err, ControllerInstantiationError)
 		}
-		ic.in <- event.TypedGenericEvent[Request]{Object: Request{NamespacedName: req.NamespacedName}}
+		ic.in <- event.TypedGenericEvent[Request]{Object: Request{}}
 	}
 
 	return ctrl.Result{}, nil
@@ -101,6 +102,8 @@ func (r *ManagedResourceControllerManager) ensureInstanceControllerFor(mrKey typ
 	}
 
 	reconciler := &ManagedResourceReconciler{
+		For: mrKey,
+
 		Client:   r.Client,
 		Scheme:   r.Scheme,
 		Recorder: r.Recorder,
@@ -128,9 +131,10 @@ func (r *ManagedResourceControllerManager) ensureInstanceControllerFor(mrKey typ
 	}
 	instanceCtrlCtx, instanceCtrlCancel := context.WithCancel(r.ControllerLifetimeCtx)
 	instanceCtrl := &resourceController{
-		in:   make(chan event.TypedGenericEvent[Request]),
-		ctrl: dynCtrl,
-		stop: instanceCtrlCancel,
+		in:         make(chan event.TypedGenericEvent[Request]),
+		ctrl:       dynCtrl,
+		stop:       instanceCtrlCancel,
+		reconciler: reconciler,
 	}
 
 	if err := dynCtrl.Watch(source.TypedChannel(instanceCtrl.in, handler.TypedEnqueueRequestsFromMapFunc(func(_ context.Context, event Request) []Request {

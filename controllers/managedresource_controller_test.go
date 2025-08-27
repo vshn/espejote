@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
@@ -74,7 +75,7 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		Recorder:                mgr.GetEventRecorderFor("managed-resource-controller"),
 	}
 	require.NoError(t, subject.SetupWithManager("managedresource", cfg, mgr))
-	// metrics.Registry.MustRegister(&CacheSizeCollector{ManagedResourceReconciler: subject})
+	metrics.Registry.MustRegister(&CacheSizeCollector{ControllerManager: subject})
 
 	mgrCtx, mgrCancel := context.WithCancel(ctx)
 	t.Cleanup(mgrCancel)
@@ -1525,7 +1526,6 @@ if esp.triggerName() == 'trigger' then {
 	})
 
 	t.Run("custom metrics", func(t *testing.T) {
-		t.Skip("TODO: Rewire metrics")
 		t.Parallel()
 
 		testns := testutil.TmpNamespace(t, c)

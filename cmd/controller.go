@@ -217,7 +217,7 @@ func runController(cmd *cobra.Command, _ []string) error {
 	if err := mrr.SetupWithManager("managedresource", restConf, mgr); err != nil {
 		return fmt.Errorf("unable to create ManagedResource controller: %w", err)
 	}
-	// metrics.Registry.MustRegister(&controllers.CacheSizeCollector{ManagedResourceReconciler: mrr})
+	metrics.Registry.MustRegister(&controllers.CacheSizeCollector{ControllerManager: mrr})
 	metrics.Registry.MustRegister(&controllers.ManagedResourceStatusCollector{Reader: mgr.GetClient()})
 
 	if enableDynamicAdmissionWebhook {
