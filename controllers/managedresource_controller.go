@@ -35,7 +35,6 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -519,42 +518,6 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 	}
 	r.caches[k] = ci
 	return ci, nil
-}
-
-// Setup sets up the controller with the Manager.
-func (r *ManagedResourceReconciler) Setup(cfg *rest.Config, mgr ctrl.Manager) error {
-	return r.SetupWithName(cfg, mgr, "managed_resource")
-}
-
-// SetupWithName sets up the controller with the Manager and a name for the global metrics registry.
-func (r *ManagedResourceReconciler) SetupWithName(cfg *rest.Config, mgr ctrl.Manager, name string) error {
-	c, err := builder.TypedControllerManagedBy[Request](mgr).
-		Named(name).
-		Watches(&espejotev1alpha1.ManagedResource{}, handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, a client.Object) []Request {
-			return []Request{
-				{
-					NamespacedName: types.NamespacedName{
-						Namespace: a.GetNamespace(),
-						Name:      a.GetName(),
-					},
-				},
-			}
-		})).
-		Build(r)
-	if err != nil {
-		return fmt.Errorf("failed to setup controller: %w", err)
-	}
-	r.controller = c
-
-	kubernetesClient, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create kubernetes client: %w", err)
-	}
-	r.clientset = kubernetesClient
-	r.restConfig = cfg
-	r.mapper = mgr.GetRESTMapper()
-
-	return err
 }
 
 // Render renders the given ManagedResource.

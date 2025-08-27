@@ -214,7 +214,7 @@ func runController(cmd *cobra.Command, _ []string) error {
 		ControllerLifetimeCtx:   lifetimeCtx,
 		JsonnetLibraryNamespace: jsonnetLibraryNamespace,
 	}
-	if err := mrr.SetupWithManager(restConf, mgr); err != nil {
+	if err := mrr.SetupWithManager("managedresource", restConf, mgr); err != nil {
 		return fmt.Errorf("unable to create ManagedResource controller: %w", err)
 	}
 	// metrics.Registry.MustRegister(&controllers.CacheSizeCollector{ManagedResourceReconciler: mrr})

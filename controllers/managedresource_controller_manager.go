@@ -167,9 +167,10 @@ func (r *ManagedResourceControllerManager) stopAndRemoveControllerFor(mrKey type
 	return nil
 }
 
-func (r *ManagedResourceControllerManager) SetupWithManager(cfg *rest.Config, mgr ctrl.Manager) error {
+func (r *ManagedResourceControllerManager) SetupWithManager(name string, cfg *rest.Config, mgr ctrl.Manager) error {
 	err := builder.ControllerManagedBy(mgr).
 		For(&espejotev1alpha1.ManagedResource{}).
+		Named(name).
 		Complete(r)
 	if err != nil {
 		return fmt.Errorf("failed to setup controller: %w", err)
