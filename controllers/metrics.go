@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
@@ -57,7 +58,7 @@ var (
 // CacheSizeCollector collects cache size metrics.
 // It loops over all caches and collects the number of cached objects and the size of the cache.
 type CacheSizeCollector struct {
-	ManagedResourceReconciler *ManagedResourceReconciler
+	ControllerManager *ManagedResourceControllerManager
 }
 
 // Describe implements the prometheus.Collector interface.
@@ -69,10 +70,8 @@ func (c *CacheSizeCollector) Describe(ch chan<- *prometheus.Desc) {
 // Collect implements the prometheus.Collector interface.
 func (c *CacheSizeCollector) Collect(ch chan<- prometheus.Metric) {
 	ctx := context.Background()
-	c.ManagedResourceReconciler.cachesMux.RLock()
-	defer c.ManagedResourceReconciler.cachesMux.RUnlock()
 
-	for mr, c := range c.ManagedResourceReconciler.caches {
+	for mr, c := range c.shallowCloneCachesWithLock() {
 		for cn, cv := range c.contextCaches {
 			count, sizeBytes, err := cv.Size(ctx)
 			if ignoreErrCacheNotReady(err) != nil {
@@ -124,6 +123,19 @@ func (c *CacheSizeCollector) Collect(ch chan<- prometheus.Metric) {
 			)
 		}
 	}
+}
+
+func (c *CacheSizeCollector) shallowCloneCachesWithLock() map[types.NamespacedName]*instanceCache {
+	c.ControllerManager.controllersMux.RLock()
+	defer c.ControllerManager.controllersMux.RUnlock()
+
+	cloned := make(map[types.NamespacedName]*instanceCache)
+	for k, v := range c.ControllerManager.controllers {
+		if c := v.reconciler.getCache(); c != nil {
+			cloned[k] = c
+		}
+	}
+	return cloned
 }
 
 var (

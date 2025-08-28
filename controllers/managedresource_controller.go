@@ -35,7 +35,6 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -49,9 +48,7 @@ import (
 
 const jsonNull = "null"
 
-type Request = struct {
-	NamespacedName types.NamespacedName
-	// Include more trigger info
+type Request struct {
 	TriggerInfo TriggerInfo
 }
 
@@ -70,6 +67,12 @@ type WatchResource struct {
 }
 
 type ManagedResourceReconciler struct {
+	// For identifies the managed resource being reconciled.
+	// This reconciler does not work like a classic reconciler.
+	// One instance of this reconciler exists for each managed resource and it only ever reconciles that resource.
+	// ManagedResourceControllerManager dynamically creates and manages these reconciler instances.
+	For types.NamespacedName
+
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
@@ -82,8 +85,8 @@ type ManagedResourceReconciler struct {
 	restConfig *rest.Config
 	mapper     meta.RESTMapper
 
-	cachesMux sync.RWMutex
-	caches    map[types.NamespacedName]*instanceCache
+	cacheMux sync.RWMutex
+	cache    *instanceCache
 
 	// newCacheFunc is only used for testing
 	newCacheFunction cache.NewCacheFunc
@@ -197,6 +200,7 @@ const (
 	TemplateError                EspejoteErrorType = "TemplateError"
 	ApplyError                   EspejoteErrorType = "ApplyError"
 	TemplateReturnError          EspejoteErrorType = "TemplateReturnError"
+	ControllerInstantiationError EspejoteErrorType = "ControllerInstantiationError"
 )
 
 type EspejoteError struct {
@@ -227,7 +231,7 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) 
 	// Since we are not using the default builder we need to add the request to the context ourselves
 	ctx = log.IntoContext(ctx, log.FromContext(ctx).WithValues("request", req))
 
-	reconciles.WithLabelValues(req.NamespacedName.Name, req.NamespacedName.Namespace, req.TriggerInfo.TriggerName).Inc()
+	reconciles.WithLabelValues(r.For.Name, r.For.Namespace, req.TriggerInfo.TriggerName).Inc()
 
 	res, recErr := r.reconcile(ctx, req)
 
@@ -246,17 +250,13 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 	l.Info("Reconciling ManagedResource")
 
 	var managedResource espejotev1alpha1.ManagedResource
-	if err := r.Get(ctx, req.NamespacedName, &managedResource); err != nil {
+	if err := r.Get(ctx, r.For, &managedResource); err != nil {
 		if apierrors.IsNotFound(err) {
-			l.Info("ManagedResource is no longer available, stopping cache")
-			r.stopAndRemoveCacheFor(req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
 	if !managedResource.DeletionTimestamp.IsZero() {
-		l.Info("ManagedResource is being deleted, stopping cache")
-		r.stopAndRemoveCacheFor(req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
 
@@ -339,7 +339,7 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 // If the error is a transient error, it is not recorded as an event or metric.
 func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, req Request, recErr error) error {
 	var managedResource espejotev1alpha1.ManagedResource
-	if err := r.Get(ctx, req.NamespacedName, &managedResource); err != nil {
+	if err := r.Get(ctx, r.For, &managedResource); err != nil {
 		return client.IgnoreNotFound(err)
 	}
 
@@ -362,7 +362,7 @@ func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, req 
 
 	if !transient {
 		r.Recorder.Eventf(&managedResource, "Warning", errType, "Reconcile error: %s", recErr.Error())
-		reconcileErrors.WithLabelValues(req.NamespacedName.Name, req.NamespacedName.Namespace, req.TriggerInfo.TriggerName, errType).Inc()
+		reconcileErrors.WithLabelValues(r.For.Name, r.For.Namespace, req.TriggerInfo.TriggerName, errType).Inc()
 	}
 
 	if managedResource.Status.Status == errType {
@@ -375,28 +375,6 @@ func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, req 
 
 var ErrCacheNotReady = errors.New("cache not ready")
 var ErrFailedSyncCache = errors.New("failed to sync cache")
-
-// stopAndRemoveCacheFor stops and removes the cache for the given ManagedResource reference.
-// It is safe to call this function even if the cache does not exist.
-func (r *ManagedResourceReconciler) stopAndRemoveCacheFor(mr client.ObjectKey) {
-	r.cachesMux.RLock()
-	_, ok := r.caches[mr]
-	if !ok {
-		r.cachesMux.RUnlock()
-		return
-	}
-	r.cachesMux.RUnlock()
-
-	r.cachesMux.Lock()
-	defer r.cachesMux.Unlock()
-
-	ci, ok := r.caches[mr]
-	if !ok {
-		return
-	}
-	ci.Stop()
-	delete(r.caches, mr)
-}
 
 // cacheFor returns the cache for the given ManagedResource.
 // A new cache is created if it does not exist yet or if the configuration changed.
@@ -419,21 +397,21 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 	}
 	configHash := fmt.Sprintf("%x", hsh.Sum(nil))
 
-	r.cachesMux.RLock()
-	ci, ok := r.caches[k]
-	if ok && ci.watchConfigHash == configHash {
-		r.cachesMux.RUnlock()
-		return ci, nil
+	r.cacheMux.RLock()
+	if cache := r.cache; cache != nil && cache.watchConfigHash == configHash {
+		r.cacheMux.RUnlock()
+		return cache, nil
 	}
-	r.cachesMux.RUnlock()
+	r.cacheMux.RUnlock()
 
-	r.cachesMux.Lock()
-	defer r.cachesMux.Unlock()
-	if ok && ci.watchConfigHash == configHash {
-		return ci, nil
-	} else if ok {
-		l.Info("cache config changed, stopping old cache", "old", ci.watchConfigHash, "new", configHash)
-		ci.Stop()
+	r.cacheMux.Lock()
+	defer r.cacheMux.Unlock()
+
+	if cache := r.cache; cache != nil && cache.watchConfigHash == configHash {
+		return cache, nil
+	} else if cache != nil {
+		l.Info("cache config changed, stopping old cache", "old", cache.watchConfigHash, "new", configHash)
+		cache.Stop()
 	}
 
 	rc, err := r.restConfigForManagedResource(ctx, mr)
@@ -449,7 +427,7 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 	}
 
 	cctx, cancel := context.WithCancel(r.ControllerLifetimeCtx)
-	ci = &instanceCache{
+	ci := &instanceCache{
 		triggerCaches:   make(map[string]*definitionCache),
 		contextCaches:   make(map[string]*definitionCache),
 		stop:            cancel,
@@ -513,47 +491,14 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 		}
 	}
 
-	if r.caches == nil {
-		r.caches = make(map[types.NamespacedName]*instanceCache)
-	}
-	r.caches[k] = ci
+	r.cache = ci
 	return ci, nil
 }
 
-// Setup sets up the controller with the Manager.
-func (r *ManagedResourceReconciler) Setup(cfg *rest.Config, mgr ctrl.Manager) error {
-	return r.SetupWithName(cfg, mgr, "managed_resource")
-}
-
-// SetupWithName sets up the controller with the Manager and a name for the global metrics registry.
-func (r *ManagedResourceReconciler) SetupWithName(cfg *rest.Config, mgr ctrl.Manager, name string) error {
-	c, err := builder.TypedControllerManagedBy[Request](mgr).
-		Named(name).
-		Watches(&espejotev1alpha1.ManagedResource{}, handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, a client.Object) []Request {
-			return []Request{
-				{
-					NamespacedName: types.NamespacedName{
-						Namespace: a.GetNamespace(),
-						Name:      a.GetName(),
-					},
-				},
-			}
-		})).
-		Build(r)
-	if err != nil {
-		return fmt.Errorf("failed to setup controller: %w", err)
-	}
-	r.controller = c
-
-	kubernetesClient, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create kubernetes client: %w", err)
-	}
-	r.clientset = kubernetesClient
-	r.restConfig = cfg
-	r.mapper = mgr.GetRESTMapper()
-
-	return err
+func (r *ManagedResourceReconciler) getCache() *instanceCache {
+	r.cacheMux.RLock()
+	defer r.cacheMux.RUnlock()
+	return r.cache
 }
 
 // Render renders the given ManagedResource.
@@ -871,7 +816,6 @@ func (r *ManagedResourceReconciler) setupIntervalTrigger(lifetimeCtx context.Con
 					return
 				case <-tick.C:
 					queue.Add(Request{
-						NamespacedName: mrKey,
 						TriggerInfo: TriggerInfo{
 							TriggerName: triggerName,
 						},
@@ -888,7 +832,6 @@ func staticMapFunc(r types.NamespacedName, triggerName string) func(context.Cont
 		gvk := o.GetObjectKind().GroupVersionKind()
 		return []Request{
 			{
-				NamespacedName: r,
 				TriggerInfo: TriggerInfo{
 					TriggerName: triggerName,
 

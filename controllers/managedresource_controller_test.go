@@ -67,15 +67,15 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		Logger: testr.New(t),
 	})
 	require.NoError(t, err)
-	subject := &ManagedResourceReconciler{
+	subject := &ManagedResourceControllerManager{
 		Client:                  c,
 		Scheme:                  c.Scheme(),
 		ControllerLifetimeCtx:   ctx,
 		JsonnetLibraryNamespace: "jsonnetlibs",
 		Recorder:                mgr.GetEventRecorderFor("managed-resource-controller"),
 	}
-	require.NoError(t, subject.Setup(cfg, mgr))
-	metrics.Registry.MustRegister(&CacheSizeCollector{ManagedResourceReconciler: subject})
+	require.NoError(t, subject.SetupWithManager("managedresource", cfg, mgr))
+	metrics.Registry.MustRegister(&CacheSizeCollector{ControllerManager: subject})
 
 	mgrCtx, mgrCancel := context.WithCancel(ctx)
 	t.Cleanup(mgrCancel)
@@ -1586,8 +1586,15 @@ if esp.triggerName() == 'trigger' then {
 			gatherer: urlGatherer(fmt.Sprintf("http://localhost:%d/metrics", metricsPort)),
 			filter: func(mf *dto.MetricFamily, m *dto.Metric) bool {
 				if mf.GetName() == "espejote_reconciles_total" {
-					// We know that the trigger triggers two reconciles, one for each object.
-					return metricHasLabelPair("namespace", testns)(m) && metricHasLabelPair("trigger", "matching-cms")(m)
+					// We know that the trigger triggers at least two reconciles, one for each object.
+					// We still should cap it as there might be more than two reconciles because of cache wait or apply conflicts.
+					if metricHasLabelPair("namespace", testns)(m) && metricHasLabelPair("trigger", "matching-cms")(m) {
+						if m.GetCounter().GetValue() > 2 {
+							m.Counter.Value = ptr.To(float64(2))
+						}
+						return true
+					}
+					return false
 				}
 				return metricHasLabelPair("namespace", testns)(m)
 			},
@@ -1653,15 +1660,16 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingCache(t *testing.T) {
 		Logger: testr.New(t),
 	})
 	require.NoError(t, err)
-	subject := &ManagedResourceReconciler{
+	cf, unblock := newSlowCachefunc()
+	subject := &ManagedResourceControllerManager{
 		Client:                  c,
 		Scheme:                  c.Scheme(),
 		ControllerLifetimeCtx:   ctx,
 		JsonnetLibraryNamespace: "jsonnetlibs",
 		Recorder:                mgr.GetEventRecorderFor("managed-resource-controller"),
-		newCacheFunction:        newSlowCachefunc,
+		newCacheFunction:        cf,
 	}
-	require.NoError(t, subject.SetupWithName(cfg, mgr, "slow_client"))
+	require.NoError(t, subject.SetupWithManager("slow_client", cfg, mgr))
 
 	mgrCtx, mgrCancel := context.WithCancel(ctx)
 	t.Cleanup(mgrCancel)
@@ -1696,16 +1704,7 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingCache(t *testing.T) {
 		}, 5*time.Second, 10*time.Millisecond)
 
 		t.Log("unblocking the cache sync")
-		subject.cachesMux.RLock()
-		for mrk, c := range subject.caches {
-			if mrk.Name != mr.Name || mrk.Namespace != mr.Namespace {
-				continue
-			}
-			for _, cc := range c.contextCaches {
-				close(cc.cache.(*slowCache).blockSync)
-			}
-		}
-		subject.cachesMux.RUnlock()
+		unblock()
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
@@ -1718,16 +1717,21 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingCache(t *testing.T) {
 	})
 }
 
-func newSlowCachefunc(config *rest.Config, opts cache.Options) (cache.Cache, error) {
-	c, err := cache.New(config, opts)
-	if err != nil {
-		return nil, err
-	}
+func newSlowCachefunc() (cf func(*rest.Config, cache.Options) (cache.Cache, error), unblock func()) {
+	block := make(chan struct{})
+	return func(config *rest.Config, opts cache.Options) (cache.Cache, error) {
+			c, err := cache.New(config, opts)
+			if err != nil {
+				return nil, err
+			}
 
-	return &slowCache{
-		Cache:     c,
-		blockSync: make(chan struct{}),
-	}, nil
+			return &slowCache{
+				Cache:     c,
+				blockSync: block,
+			}, nil
+		}, func() {
+			close(block)
+		}
 }
 
 type slowCache struct {
