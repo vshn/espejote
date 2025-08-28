@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/DmitriyVTitov/size"
@@ -86,9 +85,8 @@ type ManagedResourceReconciler struct {
 	restConfig *rest.Config
 	mapper     meta.RESTMapper
 
-	// Protected because metrics read the cache for cache stats.
-	// Not concurrently accessed inside this controller.
-	cache atomic.Pointer[instanceCache]
+	cacheMux sync.RWMutex
+	cache    *instanceCache
 
 	// newCacheFunc is only used for testing
 	newCacheFunction cache.NewCacheFunc
@@ -399,9 +397,17 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 	}
 	configHash := fmt.Sprintf("%x", hsh.Sum(nil))
 
-	// We only need to worry about external concurrent read access from the metrics collector.
-	// This function is serialized by controller-runtime currently.
-	if cache := r.cache.Load(); cache != nil && cache.watchConfigHash == configHash {
+	r.cacheMux.RLock()
+	if cache := r.cache; cache != nil && cache.watchConfigHash == configHash {
+		r.cacheMux.RUnlock()
+		return cache, nil
+	}
+	r.cacheMux.RUnlock()
+
+	r.cacheMux.Lock()
+	defer r.cacheMux.Unlock()
+
+	if cache := r.cache; cache != nil && cache.watchConfigHash == configHash {
 		return cache, nil
 	} else if cache != nil {
 		l.Info("cache config changed, stopping old cache", "old", cache.watchConfigHash, "new", configHash)
@@ -485,8 +491,14 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 		}
 	}
 
-	r.cache.Store(ci)
+	r.cache = ci
 	return ci, nil
+}
+
+func (r *ManagedResourceReconciler) getCache() *instanceCache {
+	r.cacheMux.RLock()
+	defer r.cacheMux.RUnlock()
+	return r.cache
 }
 
 // Render renders the given ManagedResource.

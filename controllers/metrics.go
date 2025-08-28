@@ -131,7 +131,7 @@ func (c *CacheSizeCollector) shallowCloneCachesWithLock() map[types.NamespacedNa
 
 	cloned := make(map[types.NamespacedName]*instanceCache)
 	for k, v := range c.ControllerManager.controllers {
-		if c := v.reconciler.cache.Load(); c != nil {
+		if c := v.reconciler.getCache(); c != nil {
 			cloned[k] = c
 		}
 	}
