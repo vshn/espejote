@@ -65,14 +65,14 @@ func (r *ManagedResourceControllerManager) Reconcile(ctx context.Context, req re
 	var managedResource espejotev1alpha1.ManagedResource
 	if err := r.Get(ctx, req.NamespacedName, &managedResource); err != nil {
 		if apierrors.IsNotFound(err) {
-			l.Info("ManagedResource is no longer available, stopping cache")
+			l.Info("ManagedResource is no longer available, stopping controller")
 			r.stopAndRemoveControllerFor(req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
 	if !managedResource.DeletionTimestamp.IsZero() {
-		l.Info("ManagedResource is being deleted, stopping cache")
+		l.Info("ManagedResource is being deleted, stopping controller")
 		r.stopAndRemoveControllerFor(req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
