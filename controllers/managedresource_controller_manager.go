@@ -44,8 +44,9 @@ type ManagedResourceControllerManager struct {
 	// newCacheFunc is only used for testing
 	newCacheFunction cache.NewCacheFunc
 
-	expControllersMux sync.RWMutex
-	expControllers    map[types.NamespacedName]*resourceController
+	// controllers holds the actual reconcilers, one for each managed resource.
+	controllersMux sync.RWMutex
+	controllers    map[types.NamespacedName]*resourceController
 }
 
 type resourceController struct {
@@ -88,16 +89,16 @@ func (r *ManagedResourceControllerManager) Reconcile(ctx context.Context, req re
 }
 
 func (r *ManagedResourceControllerManager) ensureInstanceControllerFor(mrKey types.NamespacedName) (*resourceController, error) {
-	r.expControllersMux.RLock()
-	if c := r.expControllers[mrKey]; c != nil {
-		r.expControllersMux.RUnlock()
+	r.controllersMux.RLock()
+	if c := r.controllers[mrKey]; c != nil {
+		r.controllersMux.RUnlock()
 		return c, nil
 	}
-	r.expControllersMux.RUnlock()
+	r.controllersMux.RUnlock()
 
-	r.expControllersMux.Lock()
-	defer r.expControllersMux.Unlock()
-	if c := r.expControllers[mrKey]; c != nil {
+	r.controllersMux.Lock()
+	defer r.controllersMux.Unlock()
+	if c := r.controllers[mrKey]; c != nil {
 		return c, nil
 	}
 
@@ -118,13 +119,19 @@ func (r *ManagedResourceControllerManager) ensureInstanceControllerFor(mrKey typ
 		newCacheFunction: r.newCacheFunction,
 	}
 	dynCtrl, err := controller.NewTypedUnmanaged(
-		fmt.Sprintf("mr-dynamic-%s-%s", mrKey.Namespace, mrKey.Name),
+		fmt.Sprintf("managedresource/%s/%s", mrKey.Namespace, mrKey.Name),
 		controller.TypedOptions[Request]{
+			// The name is used for the workqueue metrics. Thus would trigger on
+			// resource recreation. We could encode the resource UID into the metrics
+			// to fix this nicely. This is quite annoying because you need to override
+			// the new workqueue function. Don't currently see the problem with just
+			// reusing the same metrics on recreate.
 			SkipNameValidation: ptr.To(true),
 			Reconciler:         reconciler,
 			Logger:             r.logger,
 		},
 	)
+	// Reconciler needs a backreference for additional dynamic watches from triggers.
 	reconciler.controller = dynCtrl
 	if err != nil {
 		return nil, fmt.Errorf("failed to create dynamic controller: %w", err)
@@ -143,31 +150,31 @@ func (r *ManagedResourceControllerManager) ensureInstanceControllerFor(mrKey typ
 		return nil, fmt.Errorf("failed to watch instance %q controller: %w", mrKey, err)
 	}
 	go dynCtrl.Start(instanceCtrlCtx)
-	if r.expControllers == nil {
-		r.expControllers = make(map[types.NamespacedName]*resourceController)
+	if r.controllers == nil {
+		r.controllers = make(map[types.NamespacedName]*resourceController)
 	}
-	r.expControllers[mrKey] = instanceCtrl
+	r.controllers[mrKey] = instanceCtrl
 	return instanceCtrl, nil
 }
 
 func (r *ManagedResourceControllerManager) stopAndRemoveControllerFor(mrKey types.NamespacedName) error {
-	r.expControllersMux.RLock()
-	_, ok := r.expControllers[mrKey]
+	r.controllersMux.RLock()
+	_, ok := r.controllers[mrKey]
 	if !ok {
-		r.expControllersMux.RUnlock()
+		r.controllersMux.RUnlock()
 		return nil
 	}
-	r.expControllersMux.RUnlock()
+	r.controllersMux.RUnlock()
 
-	r.expControllersMux.Lock()
-	defer r.expControllersMux.Unlock()
+	r.controllersMux.Lock()
+	defer r.controllersMux.Unlock()
 
-	rc, ok := r.expControllers[mrKey]
+	rc, ok := r.controllers[mrKey]
 	if !ok {
 		return nil
 	}
 	rc.stop()
-	delete(r.expControllers, mrKey)
+	delete(r.controllers, mrKey)
 	return nil
 }
 

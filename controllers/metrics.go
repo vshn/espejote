@@ -126,11 +126,11 @@ func (c *CacheSizeCollector) Collect(ch chan<- prometheus.Metric) {
 }
 
 func (c *CacheSizeCollector) shallowCloneCachesWithLock() map[types.NamespacedName]*instanceCache {
-	c.ControllerManager.expControllersMux.RLock()
-	defer c.ControllerManager.expControllersMux.RUnlock()
+	c.ControllerManager.controllersMux.RLock()
+	defer c.ControllerManager.controllersMux.RUnlock()
 
 	cloned := make(map[types.NamespacedName]*instanceCache)
-	for k, v := range c.ControllerManager.expControllers {
+	for k, v := range c.ControllerManager.controllers {
 		if c := v.reconciler.cache.Load(); c != nil {
 			cloned[k] = c
 		}

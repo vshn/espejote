@@ -86,6 +86,8 @@ type ManagedResourceReconciler struct {
 	restConfig *rest.Config
 	mapper     meta.RESTMapper
 
+	// Protected because metrics read the cache for cache stats.
+	// Not concurrently accessed inside this controller.
 	cache atomic.Pointer[instanceCache]
 
 	// newCacheFunc is only used for testing
