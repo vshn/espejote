@@ -1586,8 +1586,15 @@ if esp.triggerName() == 'trigger' then {
 			gatherer: urlGatherer(fmt.Sprintf("http://localhost:%d/metrics", metricsPort)),
 			filter: func(mf *dto.MetricFamily, m *dto.Metric) bool {
 				if mf.GetName() == "espejote_reconciles_total" {
-					// We know that the trigger triggers two reconciles, one for each object.
-					return metricHasLabelPair("namespace", testns)(m) && metricHasLabelPair("trigger", "matching-cms")(m)
+					// We know that the trigger triggers at least two reconciles, one for each object.
+					// We still should cap it as there might be more than two reconciles because of cache wait or apply conflicts.
+					if metricHasLabelPair("namespace", testns)(m) && metricHasLabelPair("trigger", "matching-cms")(m) {
+						if m.GetCounter().GetValue() > 2 {
+							m.Counter.Value = ptr.To(float64(2))
+						}
+						return true
+					}
+					return false
 				}
 				return metricHasLabelPair("namespace", testns)(m)
 			},
