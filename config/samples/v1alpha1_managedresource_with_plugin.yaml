@@ -1,0 +1,31 @@
+apiVersion: espejote.io/v1alpha1
+kind: ManagedResource
+metadata:
+  labels:
+    app.kubernetes.io/name: espejote
+    app.kubernetes.io/managed-by: kustomize
+  name: managedresource-with-plugin-sample
+  annotations:
+    description: |
+      Stores the output from the plugin-sample which refers to ghcr.io/bastjan/espejote-plugin-myip in a configmap called myip.
+spec:
+  context:
+  - name: myip
+    plugin:
+      name: plugin-sample
+  triggers:
+  - name: interval
+    interval: 1m
+  template: |
+    local esp = import "espejote.libsonnet";
+
+    {
+      apiVersion: 'v1',
+      kind: 'ConfigMap',
+      metadata: {
+        name: 'myip',
+      },
+      data: {
+        myip: esp.context().myip,
+      },
+    }

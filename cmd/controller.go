@@ -28,6 +28,7 @@ import (
 	"github.com/vshn/espejote/admission"
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
 	"github.com/vshn/espejote/controllers"
+	"github.com/vshn/espejote/plugins"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -71,6 +72,9 @@ func init() {
 	controllerCmd.Flags().String("metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
 	controllerCmd.Flags().String("metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 
+	controllerCmd.Flags().Bool("alpha-plugins", false, "Enable alpha plugins. This is a temporary flag to enable alpha plugins until they are stable and can be enabled by default.")
+	controllerCmd.Flags().String("alpha-plugins-dir", "plugin-store", "The directory where alpha plugins are stored.")
+
 	registerJsonnetLibraryNamespaceFlag(controllerCmd)
 }
 
@@ -104,7 +108,10 @@ func runController(cmd *cobra.Command, _ []string) error {
 	metricsCertName, mcnerr := cmd.Flags().GetString("metrics-cert-name")
 	metricsCertKey, mckerr := cmd.Flags().GetString("metrics-cert-key")
 
-	if err := multierr.Combine(jlnerr, cnerr, dawsnerr, wcperr, wcnerr, wckerr, edawerr, dawnerr, dawperr, mcperr, mcnerr, mckerr, smerr); err != nil {
+	alphaPluginsEnabled, apeerr := cmd.Flags().GetBool("alpha-plugins")
+	alphaPluginsDir, apderr := cmd.Flags().GetString("alpha-plugins-dir")
+
+	if err := multierr.Combine(jlnerr, cnerr, dawsnerr, wcperr, wcnerr, wckerr, edawerr, dawnerr, dawperr, mcperr, mcnerr, mckerr, smerr, apeerr, apderr); err != nil {
 		return fmt.Errorf("failed to get flags: %w", err)
 	}
 
@@ -206,10 +213,37 @@ func runController(cmd *cobra.Command, _ []string) error {
 
 	lifetimeCtx := cmd.Context()
 
+	var pluginManager *plugins.Manager
+	if alphaPluginsEnabled {
+		cmd.Println("Alpha plugins enabled, initializing plugin manager",
+			"alpha-plugins-dir", alphaPluginsDir)
+
+		var err error
+		pluginManager, err = plugins.NewManager(alphaPluginsDir)
+		if err != nil {
+			return fmt.Errorf("failed to create plugin manager: %w", err)
+		}
+
+		pr := &controllers.PluginReconciler{
+			Client:        mgr.GetClient(),
+			Scheme:        mgr.GetScheme(),
+			Recorder:      mgr.GetEventRecorderFor("plugin-controller"),
+			Namespace:     controllerNamespace,
+			PluginManager: pluginManager,
+		}
+		if err := pr.SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("unable to create Plugin controller: %w", err)
+		}
+	} else {
+		cmd.Println("Alpha plugins are disabled, skipping plugin manager setup")
+	}
+
 	mrr := &controllers.ManagedResourceControllerManager{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("managed-resource-controller"),
+
+		PluginManager: pluginManager,
 
 		ControllerLifetimeCtx:   lifetimeCtx,
 		JsonnetLibraryNamespace: jsonnetLibraryNamespace,

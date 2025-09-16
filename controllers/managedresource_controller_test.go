@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
+	"oras.land/oras-go/v2/registry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -37,8 +39,12 @@ import (
 	metricserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
+	"github.com/vshn/espejote/plugins"
+	"github.com/vshn/espejote/plugins/plugintest"
 	"github.com/vshn/espejote/testutil"
 )
+
+//go:generate env GOOS=wasip1 GOARCH=wasm go build -o ./testdata/plugin-echo/plugin.wasm ./testdata/plugin-echo
 
 // Test_ManagedResourceReconciler_Reconcile tests the ManagedResourceReconciler.
 // For efficiency, the tests are run in parallel and there is only one instance of the controller and api-server.
@@ -67,7 +73,13 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		Logger: testr.New(t),
 	})
 	require.NoError(t, err)
+	mockPluginRegistry := plugintest.NewMockPluginRegistry(t)
+	require.NoError(t, err)
+	pluginManager, err := plugins.NewManagerWithRegistry(t.TempDir(), mockPluginRegistry)
+	require.NoError(t, err)
 	subject := &ManagedResourceControllerManager{
+		PluginManager: pluginManager,
+
 		Client:                  c,
 		Scheme:                  c.Scheme(),
 		ControllerLifetimeCtx:   ctx,
@@ -1762,6 +1774,140 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingCache(t *testing.T) {
 		var events corev1.EventList
 		require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
 		require.Len(t, events.Items, 0, "waiting for caches should not create error events")
+	})
+}
+
+func Test_ManagedResourceReconciler_Reconcile_Plugins(t *testing.T) {
+	// No parallelism here in case the plugin compilation takes a bit longer (especially with race detector enabled) and other tests run into timeouts.
+
+	scheme, cfg := testutil.SetupEnvtestEnv(t)
+	c, err := client.NewWithWatch(cfg, client.Options{
+		Scheme: scheme,
+	})
+	require.NoError(t, err)
+
+	ctx := log.IntoContext(t.Context(), testr.New(t))
+
+	metricsPort, err := freePort()
+	t.Log("metrics port:", metricsPort)
+	require.NoError(t, err)
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme: scheme,
+		Metrics: metricserver.Options{
+			BindAddress: ":" + strconv.Itoa(metricsPort),
+		},
+		Logger: testr.New(t),
+	})
+	require.NoError(t, err)
+	mockPluginRegistry := plugintest.NewMockPluginRegistry(t)
+	require.NoError(t, err)
+	pluginManager, err := plugins.NewManagerWithRegistry(t.TempDir(), mockPluginRegistry)
+	require.NoError(t, err)
+	subject := &ManagedResourceControllerManager{
+		PluginManager: pluginManager,
+
+		Client:                  c,
+		Scheme:                  c.Scheme(),
+		ControllerLifetimeCtx:   ctx,
+		JsonnetLibraryNamespace: "jsonnetlibs",
+		Recorder:                mgr.GetEventRecorderFor("managed-resource-controller"),
+	}
+	require.NoError(t, subject.SetupWithManager("managed_resource_plugins", cfg, mgr))
+
+	mgrCtx, mgrCancel := context.WithCancel(ctx)
+	t.Cleanup(mgrCancel)
+	go func() {
+		require.NoError(t, mgr.Start(mgrCtx))
+	}()
+
+	t.Run("basic plugin", func(t *testing.T) {
+		testns := testutil.TmpNamespace(t, c)
+
+		defaultTimeout := 5 * time.Second
+		if _, ok := os.LookupEnv("CI"); ok {
+			t.Log("I Have No CPU-Cycles, and I Must Test. Setting defaultTimeout to 30s in CI")
+			defaultTimeout = 30 * time.Second
+		}
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Triggers: []espejotev1alpha1.ManagedResourceTrigger{{
+					Name: "cm",
+					WatchResource: espejotev1alpha1.TriggerWatchResource{
+						APIVersion: "v1",
+						Kind:       "ConfigMap",
+					},
+				}},
+				Context: []espejotev1alpha1.ManagedResourceContext{{
+					Name: "plugin",
+					Plugin: espejotev1alpha1.ContextPlugin{
+						Name: "echo",
+						Data: map[string]string{
+							"stdout": "Hello, World!",
+						},
+					},
+				}},
+				Template: `
+				local esp = import 'espejote.libsonnet';
+
+				if esp.triggerName() == 'cm' then {
+					apiVersion: "v1",
+					kind: "ConfigMap",
+					metadata: {
+						name: esp.triggerData().resource.metadata.name,
+						namespace: "` + testns + `",
+					},
+					data: {
+						test: esp.context().plugin,
+					},
+				}
+				`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		pluginRef := registry.Reference{
+			Registry:   "espejote.io",
+			Repository: testns,
+			Reference:  "latest",
+		}
+
+		require.NoError(t, mockPluginRegistry.UploadFile("testdata/plugin-echo/plugin.wasm", pluginRef))
+
+		require.NoError(t, pluginManager.RegisterPlugin(ctx, "echo", pluginRef.String()))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, mr))
+			assert.Equal(t, "Ready", mr.Status.Status)
+		}, defaultTimeout, 100*time.Millisecond)
+
+		for i := range 10 {
+			cm := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test" + strconv.Itoa(i),
+					Namespace: testns,
+				},
+			}
+			require.NoError(t, c.Create(ctx, cm))
+		}
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cms corev1.ConfigMapList
+			require.NoError(t, c.List(ctx, &cms, client.InNamespace(testns)))
+			cmComp := make([]string, 0, len(cms.Items))
+			for _, cm := range cms.Items {
+				cmComp = append(cmComp, strings.Join([]string{cm.Name, cm.Data["test"]}, ":"))
+			}
+			cmExp := make([]string, 0, 10)
+			for i := range 10 {
+				cmExp = append(cmExp, fmt.Sprintf("test%d:Hello, World!", i))
+			}
+			assert.ElementsMatch(t, cmExp, cmComp)
+		}, defaultTimeout, 100*time.Millisecond)
 	})
 }
 

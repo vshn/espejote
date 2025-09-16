@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
+	"github.com/vshn/espejote/plugins"
 )
 
 const jsonNull = "null"
@@ -79,6 +80,8 @@ type ManagedResourceReconciler struct {
 
 	ControllerLifetimeCtx   context.Context
 	JsonnetLibraryNamespace string
+
+	PluginManager *plugins.Manager
 
 	controller controller.TypedController[Request]
 	clientset  *kubernetes.Clientset
@@ -274,6 +277,7 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 
 	rendered, err := (&Renderer{
 		Importer:            FromClientImporter(r.Client, managedResource.GetNamespace(), r.JsonnetLibraryNamespace),
+		PluginManager:       r.PluginManager,
 		TriggerClientGetter: ci.clientForTrigger,
 		ContextClientGetter: ci.clientForContext,
 	}).Render(ctx, managedResource, req.TriggerInfo)
@@ -448,6 +452,9 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 		watchConfigHash: configHash,
 	}
 	for _, con := range mr.Spec.Context {
+		if con.Plugin.Name != "" {
+			continue
+		}
 		if con.Resource.APIVersion == "" {
 			return nil, fmt.Errorf("context %q has no resource", con.Name)
 		}
@@ -518,6 +525,8 @@ func (r *ManagedResourceReconciler) getCache() *instanceCache {
 // Render renders the given ManagedResource.
 type Renderer struct {
 	Importer jsonnet.Importer
+
+	PluginManager *plugins.Manager
 
 	TriggerClientGetter func(triggerName string) (client.Reader, error)
 	ContextClientGetter func(contextName string) (client.Reader, error)
@@ -597,6 +606,22 @@ func (r *Renderer) renderTriggers(ctx context.Context, getReader func(string) (c
 func (r *Renderer) renderContexts(ctx context.Context, getReader func(string) (client.Reader, error), managedResource espejotev1alpha1.ManagedResource) (string, error) {
 	contexts := map[string]any{}
 	for _, con := range managedResource.Spec.Context {
+		if con.Plugin.Name != "" {
+			b, err := json.Marshal(con.Plugin.Data)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal plugin data for context %q: %w", con.Name, err)
+			}
+			if r.PluginManager == nil {
+				return "", fmt.Errorf("plugins are not enabled, cannot run plugin %q for context %q", con.Plugin.Name, con.Name)
+			}
+			stdout, stderr, err := r.PluginManager.RunPlugin(ctx, con.Plugin.Name, []string{string(b)})
+			if err != nil {
+				return "", fmt.Errorf("failed to run plugin %q for context %q: %w\nstdout: %s\nstderr\n: %s", con.Plugin.Name, con.Name, err, stdout, stderr)
+			}
+			contexts[con.Name] = stdout
+			continue
+		}
+
 		if con.Resource.APIVersion == "" {
 			continue
 		}

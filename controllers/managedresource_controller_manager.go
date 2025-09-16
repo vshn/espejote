@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
+	"github.com/vshn/espejote/plugins"
 )
 
 type ManagedResourceControllerManager struct {
@@ -35,6 +36,8 @@ type ManagedResourceControllerManager struct {
 
 	ControllerLifetimeCtx   context.Context
 	JsonnetLibraryNamespace string
+
+	PluginManager *plugins.Manager
 
 	clientset  *kubernetes.Clientset
 	restConfig *rest.Config
@@ -111,6 +114,8 @@ func (r *ManagedResourceControllerManager) ensureInstanceControllerFor(mrKey typ
 
 		ControllerLifetimeCtx:   r.ControllerLifetimeCtx,
 		JsonnetLibraryNamespace: r.JsonnetLibraryNamespace,
+
+		PluginManager: r.PluginManager,
 
 		clientset:  r.clientset,
 		restConfig: r.restConfig,
