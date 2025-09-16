@@ -361,7 +361,21 @@ func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, req 
 	}
 
 	if !transient {
-		r.Recorder.Eventf(&managedResource, "Warning", errType, "Reconcile error: %s", recErr.Error())
+		objs := []runtime.Object{&managedResource}
+		if req.TriggerInfo.WatchResource != (WatchResource{}) {
+			tobj := new(unstructured.Unstructured)
+			tobj.SetGroupVersionKind(schema.GroupVersionKind{
+				Group:   req.TriggerInfo.WatchResource.Group,
+				Version: req.TriggerInfo.WatchResource.APIVersion,
+				Kind:    req.TriggerInfo.WatchResource.Kind,
+			})
+			tobj.SetName(req.TriggerInfo.WatchResource.Name)
+			tobj.SetNamespace(req.TriggerInfo.WatchResource.Namespace)
+			objs = append(objs, tobj)
+		}
+		for _, obj := range objs {
+			r.Recorder.Eventf(obj, "Warning", errType, "Reconcile error: %s", recErr.Error())
+		}
 		reconcileErrors.WithLabelValues(r.For.Name, r.For.Namespace, req.TriggerInfo.TriggerName, errType).Inc()
 	}
 
