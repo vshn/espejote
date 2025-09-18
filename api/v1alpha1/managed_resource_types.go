@@ -36,6 +36,7 @@ type ManagedResourceSpec struct {
 	//   The namespace is configured at controller startup and normally points to the namespace of the controller.
 	// - "<NAME>/<KEY>" libraries in the same namespace as the ManagedResource. The name corresponds to the name of the JsonnetLibrary object and the key to the key in the data field.
 	// The template can return a single object, a list of objects, or null. Everything else is considered an error.
+	// If a list is returned, null objects in this list are silently dropped.
 	// Namespaced objects default to the namespace of the ManagedResource.
 	Template string `json:"template,omitempty"`
 

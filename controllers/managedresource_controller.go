@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	encjson "encoding/json"
@@ -285,6 +286,7 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to unpack rendered objects: %w", err)
 	}
+	l.Info("Unpacked objects from template", "count", len(objects))
 
 	// ensure namespaced objects have a namespace set
 	for _, obj := range objects {
@@ -662,7 +664,11 @@ func (r *ManagedResourceReconciler) unpackRenderedObjects(ctx context.Context, r
 		if err := json.Unmarshal([]byte(rendered), &list); err != nil {
 			return nil, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), TemplateReturnError)
 		}
+		objects = slices.Grow(objects, len(list))
 		for _, raw := range list {
+			if bytes.Equal(raw, []byte(jsonNull)) {
+				continue
+			}
 			obj := &unstructured.Unstructured{}
 			if err := obj.UnmarshalJSON(raw); err != nil {
 				return nil, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), TemplateReturnError)
@@ -670,7 +676,6 @@ func (r *ManagedResourceReconciler) unpackRenderedObjects(ctx context.Context, r
 			objects = append(objects, obj)
 		}
 	} else if rendered == jsonNull {
-		log.FromContext(ctx).Info("template returned null, no objects to apply")
 	} else {
 		return nil, newEspejoteError(fmt.Errorf("unexpected output from rendered template: %q", rendered), TemplateReturnError)
 	}
