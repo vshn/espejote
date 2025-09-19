@@ -1482,6 +1482,79 @@ local esp = import 'espejote.libsonnet';
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
+	t.Run("watchResource adds raw trigger info, even if resource does not exist", func(t *testing.T) {
+		t.Parallel()
+
+		testns := testutil.TmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Triggers: []espejotev1alpha1.ManagedResourceTrigger{{
+					Name: "trigger",
+					WatchResource: espejotev1alpha1.TriggerWatchResource{
+						APIVersion: "networking.k8s.io/v1",
+						Kind:       "NetworkPolicy",
+						MatchNames: []string{"trigger"},
+					},
+				}},
+				Template: fmt.Sprintf(`
+local esp = import 'espejote.libsonnet';
+
+local td = esp.triggerData();
+
+local cm(data) = {
+  apiVersion: 'v1',
+  kind: 'ConfigMap',
+  metadata: {
+    name: 'tracking',
+  },
+  data: data,
+};
+
+if esp.triggerName() == 'trigger' then (
+	local ev = td.resourceEvent;
+  assert ev.apiVersion == 'networking.k8s.io/v1'
+         && ev.kind == 'NetworkPolicy'
+         && ev.name == 'trigger'
+         && ev.namespace == '%s'
+         : 'resourceEvent does not have correct fields';
+  if td.resource != null && td.resourceEvent != null then cm({ seenBoth: 'true' })
+  else if td.resource == null && td.resourceEvent != null then cm({ onlyEvent: 'true' })
+)
+`, testns),
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		triggerNetPol := &networkingv1.NetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "trigger",
+				Namespace: testns,
+			},
+		}
+		require.NoError(t, c.Create(ctx, triggerNetPol))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			assert.Equal(t, "Ready", mr.Status.Status)
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "tracking"}, &cm))
+			assert.Equal(t, "true", cm.Data["seenBoth"])
+		}, 5*time.Second, 100*time.Millisecond)
+
+		require.NoError(t, c.Delete(ctx, triggerNetPol))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "tracking"}, &cm))
+			assert.Equal(t, "true", cm.Data["onlyEvent"])
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
 	t.Run("strip managedFields", func(t *testing.T) {
 		t.Parallel()
 
