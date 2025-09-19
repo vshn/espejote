@@ -526,6 +526,31 @@ local netpols = esp.context().netpols;
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
+	t.Run("drop nulls from returned list", func(t *testing.T) {
+		t.Parallel()
+
+		testns := testutil.TmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Template: `[null, {apiVersion: "v1", kind: "ConfigMap", metadata: {name: "test"}} , null]`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
+			var events corev1.EventList
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
+			require.Len(t, events.Items, 0)
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
 	t.Run("template error", func(t *testing.T) {
 		t.Parallel()
 
