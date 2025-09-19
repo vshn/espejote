@@ -231,7 +231,9 @@ local alpha = {
   '#triggerData': d.fn(|||
     Gets data added to the trigger by the controller.
     Currently only available for WatchResource triggers.
-    WatchResource triggers add the full object that triggered the template to the trigger data under the key `resource`.
+    WatchResource triggers add the full object that triggered the template to the trigger data under the key `resource` and
+    the raw trigger event - a flat dictionary consisting of `apiVersion`, `kind`, `name`, and `namespace` - under the key `resourceEvent`.
+    The `resource` object might be null if the object was deleted and can't be retrieved.
   |||),
   triggerData: function() std.get(trigger, 'data'),
 

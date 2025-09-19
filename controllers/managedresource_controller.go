@@ -560,6 +560,18 @@ func (r *Renderer) renderTriggers(ctx context.Context, getReader func(string) (c
 	}
 
 	if ti.WatchResource != (WatchResource{}) {
+		triggerData := struct {
+			Resource map[string]any `json:"resource"`
+			Event    map[string]any `json:"resourceEvent"`
+		}{
+			Event: map[string]any{
+				"apiVersion": schema.GroupVersion{Group: ti.WatchResource.Group, Version: ti.WatchResource.APIVersion}.String(),
+				"kind":       ti.WatchResource.Kind,
+				"name":       ti.WatchResource.Name,
+				"namespace":  ti.WatchResource.Namespace,
+			},
+		}
+
 		var triggerObj unstructured.Unstructured
 		triggerObj.SetGroupVersionKind(schema.GroupVersionKind{
 			Group:   ti.WatchResource.Group,
@@ -572,20 +584,18 @@ func (r *Renderer) renderTriggers(ctx context.Context, getReader func(string) (c
 		}
 		err = reader.Get(ctx, types.NamespacedName{Namespace: ti.WatchResource.Namespace, Name: ti.WatchResource.Name}, &triggerObj)
 		if err == nil {
-			triggerJSONBytes, err := json.Marshal(struct {
-				Resource map[string]any `json:"resource"`
-			}{
-				Resource: triggerObj.UnstructuredContent(),
-			})
-			if err != nil {
-				return "", fmt.Errorf("failed to marshal trigger info: %w", err)
-			}
-			triggerInfo.Data = triggerJSONBytes
+			triggerData.Resource = triggerObj.UnstructuredContent()
 		} else if apierrors.IsNotFound(err) {
 			log.FromContext(ctx).WithValues("trigger", ti.WatchResource).Info("trigger object not found, was deleted")
 		} else {
 			return "", fmt.Errorf("failed to get trigger object: %w", err)
 		}
+
+		dataJSON, err := json.Marshal(triggerData)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal trigger data: %w", err)
+		}
+		triggerInfo.Data = dataJSON
 	}
 
 	triggerJSON, err := json.Marshal(triggerInfo)
