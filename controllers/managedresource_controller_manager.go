@@ -102,6 +102,7 @@ func (r *ManagedResourceControllerManager) ensureInstanceControllerFor(mrKey typ
 		return c, nil
 	}
 
+	instanceCtrlCtx, instanceCtrlCancel := context.WithCancel(r.ControllerLifetimeCtx)
 	reconciler := &ManagedResourceReconciler{
 		For: mrKey,
 
@@ -109,7 +110,7 @@ func (r *ManagedResourceControllerManager) ensureInstanceControllerFor(mrKey typ
 		Scheme:   r.Scheme,
 		Recorder: r.Recorder,
 
-		ControllerLifetimeCtx:   r.ControllerLifetimeCtx,
+		ControllerLifetimeCtx:   instanceCtrlCtx,
 		JsonnetLibraryNamespace: r.JsonnetLibraryNamespace,
 
 		clientset:  r.clientset,
@@ -134,9 +135,9 @@ func (r *ManagedResourceControllerManager) ensureInstanceControllerFor(mrKey typ
 	// Reconciler needs a backreference for additional dynamic watches from triggers.
 	reconciler.controller = dynCtrl
 	if err != nil {
+		instanceCtrlCancel()
 		return nil, fmt.Errorf("failed to create dynamic controller: %w", err)
 	}
-	instanceCtrlCtx, instanceCtrlCancel := context.WithCancel(r.ControllerLifetimeCtx)
 	instanceCtrl := &resourceController{
 		in:         make(chan event.TypedGenericEvent[Request]),
 		ctrl:       dynCtrl,
