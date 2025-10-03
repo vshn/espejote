@@ -73,6 +73,16 @@ type ApplyOptions struct {
 	// +kubebuilder:default=Strict
 	// +optional
 	FieldValidation string `json:"fieldValidation,omitempty"`
+
+	// errorPolicy defines how errors during the apply are handled.
+	// Valid values are:
+	// - Continue: This will continue applying other resources if a resource fails.
+	// - Abort: This will abort the apply if a resource fails. Resources are applied in the order they are rendered by the template.
+	// Defaults to "Continue".
+	// +kubebuilder:validation:Enum=Continue;Abort
+	// +kubebuilder:default=Continue
+	// +optional
+	ErrorPolicy string `json:"errorPolicy,omitempty"`
 }
 
 type ManagedResourceTrigger struct {

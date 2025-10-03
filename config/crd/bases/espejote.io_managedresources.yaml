@@ -46,6 +46,18 @@ spec:
               applyOptions:
                 description: ApplyOptions defines the options for applying the ManagedResource
                 properties:
+                  errorPolicy:
+                    default: Continue
+                    description: |-
+                      errorPolicy defines how errors during the apply are handled.
+                      Valid values are:
+                      - Continue: This will continue applying other resources if a resource fails.
+                      - Abort: This will abort the apply if a resource fails. Resources are applied in the order they are rendered by the template.
+                      Defaults to "Continue".
+                    enum:
+                    - Continue
+                    - Abort
+                    type: string
                   fieldManager:
                     description: |-
                       FieldManager is the field manager to use when applying the ManagedResource
