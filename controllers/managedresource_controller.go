@@ -15,6 +15,7 @@ import (
 
 	"github.com/DmitriyVTitov/size"
 	"github.com/google/go-jsonnet"
+	"github.com/google/go-jsonnet/ast"
 	"go.uber.org/multierr"
 	authv1 "k8s.io/api/authentication/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -530,18 +531,18 @@ func (r *Renderer) Render(ctx context.Context, managedResource espejotev1alpha1.
 	jvm := jsonnet.MakeVM()
 	jvm.Importer(r.Importer)
 
-	triggerJSON, err := r.renderTriggers(ctx, r.TriggerClientGetter, ti)
+	triggerNode, err := r.renderTriggers(ctx, r.TriggerClientGetter, ti)
 	if err != nil {
 		return "", fmt.Errorf("failed to render triggers: %w", err)
 	}
 	// Mark as internal so we can change the implementation later, to make it more efficient for example
-	jvm.ExtCode("__internal_use_espejote_lib_trigger", triggerJSON)
+	jvm.ExtNode("__internal_use_espejote_lib_trigger", triggerNode)
 
-	contextJSON, err := r.renderContexts(ctx, r.ContextClientGetter, managedResource)
+	contextNode, err := r.renderContexts(ctx, r.ContextClientGetter, managedResource)
 	if err != nil {
 		return "", fmt.Errorf("failed to render contexts: %w", err)
 	}
-	jvm.ExtCode("__internal_use_espejote_lib_context", contextJSON)
+	jvm.ExtNode("__internal_use_espejote_lib_context", contextNode)
 
 	rendered, err := jvm.EvaluateAnonymousSnippet("template", managedResource.Spec.Template)
 	if err != nil {
@@ -551,24 +552,24 @@ func (r *Renderer) Render(ctx context.Context, managedResource espejotev1alpha1.
 }
 
 // renderTriggers renders the trigger information for the given Request.
-func (r *Renderer) renderTriggers(ctx context.Context, getReader func(string) (client.Reader, error), ti TriggerInfo) (string, error) {
-	triggerInfo := struct {
-		Name string             `json:"name,omitempty"`
-		Data encjson.RawMessage `json:"data,omitempty"`
-	}{
-		Name: ti.TriggerName,
+func (r *Renderer) renderTriggers(ctx context.Context, getReader func(string) (client.Reader, error), ti TriggerInfo) (ast.Node, error) {
+	triggerInfo := &ast.DesugaredObject{}
+
+	if ti.TriggerName != "" {
+		triggerInfo.Fields = append(triggerInfo.Fields, jsonnetObjectField("name", jsonnetString(ti.TriggerName)))
 	}
 
 	if ti.WatchResource != (WatchResource{}) {
-		triggerData := struct {
-			Resource map[string]any `json:"resource"`
-			Event    map[string]any `json:"resourceEvent"`
-		}{
-			Event: map[string]any{
-				"apiVersion": schema.GroupVersion{Group: ti.WatchResource.Group, Version: ti.WatchResource.APIVersion}.String(),
-				"kind":       ti.WatchResource.Kind,
-				"name":       ti.WatchResource.Name,
-				"namespace":  ti.WatchResource.Namespace,
+		triggerData := &ast.DesugaredObject{
+			Fields: []ast.DesugaredObjectField{
+				jsonnetObjectField("resourceEvent", &ast.DesugaredObject{
+					Fields: []ast.DesugaredObjectField{
+						jsonnetObjectField("apiVersion", jsonnetString(schema.GroupVersion{Group: ti.WatchResource.Group, Version: ti.WatchResource.APIVersion}.String())),
+						jsonnetObjectField("kind", jsonnetString(ti.WatchResource.Kind)),
+						jsonnetObjectField("name", jsonnetString(ti.WatchResource.Name)),
+						jsonnetObjectField("namespace", jsonnetString(ti.WatchResource.Namespace)),
+					},
+				}),
 			},
 		}
 
@@ -580,33 +581,30 @@ func (r *Renderer) renderTriggers(ctx context.Context, getReader func(string) (c
 		})
 		reader, err := getReader(ti.TriggerName)
 		if err != nil {
-			return "", fmt.Errorf("failed to get reader for trigger: %w", err)
+			return nil, fmt.Errorf("failed to get reader for trigger: %w", err)
 		}
 		err = reader.Get(ctx, types.NamespacedName{Namespace: ti.WatchResource.Namespace, Name: ti.WatchResource.Name}, &triggerObj)
 		if err == nil {
-			triggerData.Resource = triggerObj.UnstructuredContent()
+			node, err := jsonValueToJsonnetNode(triggerObj.UnstructuredContent())
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal trigger object: %w", err)
+			}
+			triggerData.Fields = append(triggerData.Fields, jsonnetObjectField("resource", node))
 		} else if apierrors.IsNotFound(err) {
 			log.FromContext(ctx).WithValues("trigger", ti.WatchResource).Info("trigger object not found, was deleted")
+			triggerData.Fields = append(triggerData.Fields, jsonnetObjectField("resource", &ast.LiteralNull{}))
 		} else {
-			return "", fmt.Errorf("failed to get trigger object: %w", err)
+			return nil, fmt.Errorf("failed to get trigger object: %w", err)
 		}
 
-		dataJSON, err := json.Marshal(triggerData)
-		if err != nil {
-			return "", fmt.Errorf("failed to marshal trigger data: %w", err)
-		}
-		triggerInfo.Data = dataJSON
+		triggerInfo.Fields = append(triggerInfo.Fields, jsonnetObjectField("data", triggerData))
 	}
 
-	triggerJSON, err := json.Marshal(triggerInfo)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal trigger info: %w", err)
-	}
-	return string(triggerJSON), nil
+	return triggerInfo, nil
 }
 
 // renderContexts renders the context information for the given ManagedResource.
-func (r *Renderer) renderContexts(ctx context.Context, getReader func(string) (client.Reader, error), managedResource espejotev1alpha1.ManagedResource) (string, error) {
+func (r *Renderer) renderContexts(ctx context.Context, getReader func(string) (client.Reader, error), managedResource espejotev1alpha1.ManagedResource) (ast.Node, error) {
 	contexts := map[string]any{}
 	for _, con := range managedResource.Spec.Context {
 		if con.Resource.APIVersion == "" {
@@ -614,7 +612,7 @@ func (r *Renderer) renderContexts(ctx context.Context, getReader func(string) (c
 		}
 		reader, err := getReader(con.Name)
 		if err != nil {
-			return "", fmt.Errorf("failed to get reader for context: %w", err)
+			return nil, fmt.Errorf("failed to get reader for context: %w", err)
 		}
 		var contextObj unstructured.Unstructured
 		contextObj.SetGroupVersionKind(schema.GroupVersionKind{
@@ -624,10 +622,10 @@ func (r *Renderer) renderContexts(ctx context.Context, getReader func(string) (c
 		})
 		contextObjs, err := contextObj.ToList()
 		if err != nil {
-			return "", fmt.Errorf("failed to build context list: %w", err)
+			return nil, fmt.Errorf("failed to build context list: %w", err)
 		}
 		if err := reader.List(ctx, contextObjs); err != nil {
-			return "", fmt.Errorf("failed to list context objects: %w", err)
+			return nil, fmt.Errorf("failed to list context objects: %w", err)
 		}
 
 		unwrapped := make([]any, len(contextObjs.Items))
@@ -636,11 +634,11 @@ func (r *Renderer) renderContexts(ctx context.Context, getReader func(string) (c
 		}
 		contexts[con.Name] = unwrapped
 	}
-	contextJSON, err := json.Marshal(contexts)
+	contextNode, err := jsonValueToJsonnetNode(contexts)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal contexts: %w", err)
+		return nil, fmt.Errorf("failed to marshal contexts: %w", err)
 	}
-	return string(contextJSON), nil
+	return contextNode, nil
 }
 
 // uncachedClientForManagedResource returns a client.Client running in the context of the managed resource's service account.
@@ -1071,4 +1069,59 @@ func findFirstDuplicate[T any, E comparable](s []T, f func(T) E) (found bool, du
 		cns.Insert(v)
 	}
 	return false, duplicate
+}
+
+func jsonValueToJsonnetNode(v any) (ast.Node, error) {
+	if v == nil {
+		return &ast.LiteralNull{}, nil
+	}
+
+	switch val := v.(type) {
+	case ast.Node:
+		return val, nil
+	case bool:
+		return &ast.LiteralBoolean{Value: val}, nil
+	case int64, float64:
+		jsonVal, err := json.Marshal(val)
+		if err != nil {
+			return nil, err
+		}
+		return &ast.LiteralNumber{OriginalString: string(jsonVal)}, nil
+	case string:
+		return jsonnetString(val), nil
+	case []any:
+		elems := make([]ast.CommaSeparatedExpr, len(val))
+		for i, e := range val {
+			n, err := jsonValueToJsonnetNode(e)
+			if err != nil {
+				return nil, err
+			}
+			elems[i] = ast.CommaSeparatedExpr{Expr: n}
+		}
+		return &ast.Array{Elements: elems}, nil
+	case map[string]any:
+		fields := make(ast.DesugaredObjectFields, 0, len(val))
+		for k, v := range val {
+			n, err := jsonValueToJsonnetNode(v)
+			if err != nil {
+				return nil, err
+			}
+			fields = append(fields, jsonnetObjectField(k, n))
+		}
+		return &ast.DesugaredObject{Fields: fields}, nil
+	default:
+		return nil, fmt.Errorf("unsupported json value type: %T", v)
+	}
+}
+
+func jsonnetString(s string) ast.Node {
+	return &ast.LiteralString{Value: s, Kind: ast.StringDouble}
+}
+
+func jsonnetObjectField(name string, body ast.Node) ast.DesugaredObjectField {
+	return ast.DesugaredObjectField{
+		Name: jsonnetString(name),
+		Body: body,
+		Hide: ast.ObjectFieldInherit,
+	}
 }
