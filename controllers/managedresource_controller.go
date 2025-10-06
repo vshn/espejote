@@ -107,11 +107,13 @@ func (ci *instanceCache) Stop() {
 	ci.stop()
 }
 
+var errCacheNotFound = errors.New("cache not found")
+
 // clientForTrigger returns a client.Reader for the given trigger.
 func (ci *instanceCache) clientForTrigger(triggerName string) (client.Reader, error) {
 	dc, ok := ci.triggerCaches[triggerName]
 	if !ok {
-		return nil, fmt.Errorf("cache for trigger %q not found", triggerName)
+		return nil, fmt.Errorf("error getting cache for trigger %q: %w", triggerName, errCacheNotFound)
 	}
 	return dc.cache, nil
 }
@@ -120,7 +122,7 @@ func (ci *instanceCache) clientForTrigger(triggerName string) (client.Reader, er
 func (ci *instanceCache) clientForContext(contextName string) (client.Reader, error) {
 	dc, ok := ci.contextCaches[contextName]
 	if !ok {
-		return nil, fmt.Errorf("cache for context %q not found", contextName)
+		return nil, fmt.Errorf("error getting cache for context %q: %w", contextName, errCacheNotFound)
 	}
 	return dc.cache, nil
 }
@@ -579,24 +581,32 @@ func (r *Renderer) renderTriggers(ctx context.Context, getReader func(string) (c
 			Version: ti.WatchResource.APIVersion,
 			Kind:    ti.WatchResource.Kind,
 		})
+
+		resourceNode := ast.Node(&ast.LiteralNull{})
 		reader, err := getReader(ti.TriggerName)
-		if err != nil {
+		if err == nil {
+			err = reader.Get(ctx, types.NamespacedName{Namespace: ti.WatchResource.Namespace, Name: ti.WatchResource.Name}, &triggerObj)
+			if err == nil {
+				node, err := jsonValueToJsonnetNode(triggerObj.UnstructuredContent())
+				if err != nil {
+					return nil, fmt.Errorf("failed to marshal trigger object: %w", err)
+				}
+				resourceNode = node
+			} else if apierrors.IsNotFound(err) {
+				log.FromContext(ctx).WithValues("trigger", ti.WatchResource).Info("trigger object not found, was deleted")
+			} else {
+				return nil, fmt.Errorf("failed to get trigger object: %w", err)
+			}
+		} else if errors.Is(err, errCacheNotFound) {
+			// This can happen if the triggers are reconfigured while events are still in the queue.
+			// We might want to restart the whole queue in this case.
+			// This wasn't as easy before parallelizing the reconciler, but now we can just recreate the dynamic controller.
+			log.FromContext(ctx).WithValues("trigger", ti.WatchResource).Info("cache for trigger not found, cannot get object")
+		} else {
 			return nil, fmt.Errorf("failed to get reader for trigger: %w", err)
 		}
-		err = reader.Get(ctx, types.NamespacedName{Namespace: ti.WatchResource.Namespace, Name: ti.WatchResource.Name}, &triggerObj)
-		if err == nil {
-			node, err := jsonValueToJsonnetNode(triggerObj.UnstructuredContent())
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal trigger object: %w", err)
-			}
-			triggerData.Fields = append(triggerData.Fields, jsonnetObjectField("resource", node))
-		} else if apierrors.IsNotFound(err) {
-			log.FromContext(ctx).WithValues("trigger", ti.WatchResource).Info("trigger object not found, was deleted")
-			triggerData.Fields = append(triggerData.Fields, jsonnetObjectField("resource", &ast.LiteralNull{}))
-		} else {
-			return nil, fmt.Errorf("failed to get trigger object: %w", err)
-		}
 
+		triggerData.Fields = append(triggerData.Fields, jsonnetObjectField("resource", resourceNode))
 		triggerInfo.Fields = append(triggerInfo.Fields, jsonnetObjectField("data", triggerData))
 	}
 
