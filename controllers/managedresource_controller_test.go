@@ -735,6 +735,76 @@ local netpols = esp.context().netpols;
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
+	t.Run("trigger rename does not queue reconciliation forever", func(t *testing.T) {
+		// This test ensures that renaming a trigger still in the work queue does not cause
+		// the ManagedResource to be stuck reconciling this trigger forever.
+		// Before the fix the controller repeatedly retried to receive the expired cache backing the trigger.
+		// Test works by keeping the trigger in the queue by erroring out as long as the trigger
+		// has data showing the backing cache still exists. After renaming the trigger, the cache
+		// is expired, the triggering resource can't be retrieved anymore, and the template can finish
+		// successfully.
+		t.Parallel()
+
+		testns := testutil.TmpNamespace(t, c)
+
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "trigger",
+				Namespace: testns,
+			},
+		}
+		require.NoError(t, c.Create(ctx, cm))
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
+					{
+						Name: "cm",
+						WatchResource: espejotev1alpha1.TriggerWatchResource{
+							Kind:       "ConfigMap",
+							APIVersion: "v1",
+							Name:       "trigger",
+						},
+					},
+				},
+				Template: `
+local esp = import "espejote.libsonnet";
+if esp.triggerName() == "cm" then (
+	if esp.triggerData().resource != null then
+		// keep the trigger in the queue by erroring out
+		error "not expired"
+	else
+		{apiVersion: "v1", kind: "ConfigMap", metadata: {name: "expired-marker"}}
+)`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var events corev1.EventList
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
+			require.Len(t, events.Items, 1)
+			assert.Equal(t, "Warning", events.Items[0].Type)
+			assert.Contains(t, events.Items[0].Message, "not expired")
+		}, 5*time.Second, 100*time.Millisecond)
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var mrToUpdate espejotev1alpha1.ManagedResource
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: mr.Name}, &mrToUpdate))
+			mrToUpdate.Spec.Triggers[0].Name = "cm-renamed"
+			require.NoError(t, c.Update(ctx, &mrToUpdate))
+		}, 5*time.Second, 100*time.Millisecond)
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "expired-marker"}, &cm))
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
 	t.Run("object with unknown api returned", func(t *testing.T) {
 		t.Parallel()
 
