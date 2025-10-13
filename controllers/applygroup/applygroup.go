@@ -156,21 +156,16 @@ func (a *Applier) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 			if elem.Kind == ApplyGroupConfigKind && i != 0 {
 				return fmt.Errorf("%s must be the first element in an array", applyGroupConfigGVK.Kind)
 			} else if elem.Kind == ApplyGroupConfigKind {
-				var errorPolicy string
-				if a.Parent != nil {
-					errorPolicy = a.Parent.ErrorPolicy
-				}
-				ep, found, err := unstructured.NestedString(elem.Resource.Object, "spec", "errorPolicy")
+				errorPolicy, found, err := unstructured.NestedString(elem.Resource.Object, "spec", "errorPolicy")
 				if err != nil {
 					return fmt.Errorf("reading errorPolicy: %w", err)
 				}
 				if found {
-					errorPolicy = ep
+					if !slices.Contains([]string{"Continue", "Abort"}, errorPolicy) {
+						return fmt.Errorf("errorPolicy must be either 'Continue' or 'Abort', got '%s'", errorPolicy)
+					}
+					a.ErrorPolicy = errorPolicy
 				}
-				if !slices.Contains([]string{"Continue", "Abort"}, errorPolicy) {
-					return fmt.Errorf("errorPolicy must be either 'Continue' or 'Abort', got '%s'", errorPolicy)
-				}
-				a.ErrorPolicy = errorPolicy
 			} else {
 				a.Group = append(a.Group, elem)
 			}
