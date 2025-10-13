@@ -893,9 +893,10 @@ func staticMapFunc(r types.NamespacedName, triggerName string) func(context.Cont
 // You must NOT filter the object by fields that can be modified, as watch can't properly update the Type field (Add/Modified/Deleted) to reflect items beginning to pass the filter when they previously didn't.
 func wrapNewInformerWithFilter(f func(o client.Object) (keep bool)) func(toolscache.ListerWatcher, runtime.Object, time.Duration, toolscache.Indexers) toolscache.SharedIndexInformer {
 	return func(lw toolscache.ListerWatcher, o runtime.Object, d time.Duration, i toolscache.Indexers) toolscache.SharedIndexInformer {
+		lwc := toolscache.ToListerWatcherWithContext(lw)
 		flw := &toolscache.ListWatch{
-			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
-				i, err := lw.Watch(options)
+			WatchFuncWithContext: func(ctx context.Context, options metav1.ListOptions) (watch.Interface, error) {
+				i, err := lwc.WatchWithContext(ctx, options)
 				if err != nil {
 					return nil, err
 				}
@@ -907,8 +908,8 @@ func wrapNewInformerWithFilter(f func(o client.Object) (keep bool)) func(toolsca
 					return in, f(obj)
 				}), nil
 			},
-			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
-				list, err := lw.List(options)
+			ListWithContextFunc: func(ctx context.Context, options metav1.ListOptions) (runtime.Object, error) {
+				list, err := lwc.ListWithContext(ctx, options)
 				if err != nil {
 					return nil, err
 				}
