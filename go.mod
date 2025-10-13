@@ -155,6 +155,7 @@ tool (
 	github.com/elastic/crd-ref-docs
 	github.com/google/go-jsonnet/cmd/jsonnetfmt
 	github.com/jsonnet-libs/docsonnet
+	golang.org/x/tools/cmd/stringer
 	sigs.k8s.io/controller-runtime/tools/setup-envtest
 	sigs.k8s.io/controller-tools/cmd/controller-gen
 	sigs.k8s.io/kustomize/kustomize/v5

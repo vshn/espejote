@@ -12,6 +12,7 @@ local espejote = import "espejote.libsonnet"
 
 ## Index
 
+* [`fn applyGroup(objs, errorPolicy='')`](#fn-applygroup)
 * [`fn applyOptions(obj, fieldManager, fieldManagerSuffix, force, fieldValidation)`](#fn-applyoptions)
 * [`fn context()`](#fn-context)
 * [`fn markForDelete(obj, gracePeriodSeconds, propagationPolicy, preconditionUID, preconditionResourceVersion)`](#fn-markfordelete)
@@ -27,6 +28,54 @@ local espejote = import "espejote.libsonnet"
     * [`fn patched(msg, patches)`](#fn-alphaadmissionpatched)
 
 ## Fields
+
+### fn applyGroup
+
+```ts
+applyGroup(objs, errorPolicy='')
+```
+
+`applyGroup` allows configuring a group of apply and delete operations.
+Groups can be deeply nested.
+Returning an array from the template is like returning a group without any options.
+Groups inherit the options of their parent group unless they override them.
+
+Currently the only supported option is `errorPolicy` which controls how errors are handled when applying the group.
+The options are:
+- errorPolicy: string, controls how errors are handled when applying the group.
+  Valid values are:
+  - Continue: continue applying the remaining objects in the group if an error occurs.
+  - Abort: stop applying the remaining objects in the group if an error occurs.
+  Defaults to "Continue".
+
+```jsonnet
+local esp = import 'espejote.libsonnet';
+
+local abortGroup = function(objs) esp.applyGroup(objs, errorPolicy='Abort');
+
+local manageResourceFromCM = function(cm)
+  if inDelete(cm) then
+    // Remove finalizer only if cleanup succeeds
+    abortGroup([
+      cleanup(cm),
+      removeFinalizer(cm),
+    ])
+  else
+    // Only start managing the resource after adding the finalizer was successful
+    abortGroup([
+      applyFinalizer(cm),
+      resource(cm),
+    ]);
+
+// Groups are allowed to be deeply nested and an array is a valid group without any options.
+// The default error policy is 'Continue' which we want here to keep managing other resources
+// even if one sub-group fails.
+[
+  manageResourceFromCM(child)
+  for child in esp.context().configmaps
+]
+```
+
 
 ### fn applyOptions
 

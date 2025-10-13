@@ -360,4 +360,73 @@ local alpha = {
         fieldValidation: fieldValidation,
       }),
     },
+
+  '#applyGroup': d.fn(
+    |||
+      `applyGroup` allows configuring a group of apply and delete operations.
+      Groups can be deeply nested.
+      Returning an array from the template is like returning a group without any options.
+      Groups inherit the options of their parent group unless they override them.
+
+      Currently the only supported option is `errorPolicy` which controls how errors are handled when applying the group.
+      The options are:
+      - errorPolicy: string, controls how errors are handled when applying the group.
+        Valid values are:
+        - Continue: continue applying the remaining objects in the group if an error occurs.
+        - Abort: stop applying the remaining objects in the group if an error occurs.
+        Defaults to "Continue".
+
+      ```jsonnet
+      local esp = import 'espejote.libsonnet';
+
+      local abortGroup = function(objs) esp.applyGroup(objs, errorPolicy='Abort');
+
+      local manageResourceFromCM = function(cm)
+        if inDelete(cm) then
+          // Remove finalizer only if cleanup succeeds
+          abortGroup([
+            cleanup(cm),
+            removeFinalizer(cm),
+          ])
+        else
+          // Only start managing the resource after adding the finalizer was successful
+          abortGroup([
+            applyFinalizer(cm),
+            resource(cm),
+          ]);
+
+      // Groups are allowed to be deeply nested and an array is a valid group without any options.
+      // The default error policy is 'Continue' which we want here to keep managing other resources
+      // even if one sub-group fails.
+      [
+        manageResourceFromCM(child)
+        for child in esp.context().configmaps
+      ]
+      ```
+    |||,
+    [
+      d.arg('objs', d.T.array),
+      d.arg('errorPolicy', d.T.string, ''),
+    ],
+  ),
+  applyGroup:
+    function(
+      objs,
+      errorPolicy='',
+    )
+      if errorPolicy != null && errorPolicy != '' then
+        [
+          {
+            local allowedErrorPolicies = ['Continue', 'Abort'],
+            assert std.member(allowedErrorPolicies, errorPolicy) : 'errorPolicy must be one of %s, is: %s' % [std.manifestJsonMinified(allowedErrorPolicies), errorPolicy],
+
+            apiVersion: 'internal.espejote.io/v1',
+            kind: 'ApplyGroupConfig',
+            spec: {
+              errorPolicy: errorPolicy,
+            },
+          },
+        ] + objs
+      else
+        objs,
 }
