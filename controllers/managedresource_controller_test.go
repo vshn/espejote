@@ -2,7 +2,7 @@ package controllers
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net"
@@ -1853,6 +1853,83 @@ espejote_reconciles_total{managedresource="test",namespace="`+testns+`",trigger=
 		lintproblem, err := promtestutil.GatherAndLint(inNsGatherer)
 		require.NoError(t, err)
 		assert.Empty(t, lintproblem)
+	})
+
+	t.Run("deeply nested ApplyGroups", func(t *testing.T) {
+		t.Parallel()
+
+		testns := testutil.TmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Template: `
+local esp = import 'espejote.libsonnet';
+
+local cm(name) = {
+  apiVersion: 'v1',
+  kind: 'ConfigMap',
+  metadata: {
+    name: name,
+  },
+};
+
+// Returning arrays is like returning an applyGroup without options.
+// Default errorPolicy is 'Continue'.
+[
+  null,
+  // Default errorPolicy is 'Continue'.
+  esp.applyGroup([
+    null,
+    esp.applyGroup(
+      [
+        cm('cm-💩'),
+        // Should never be applied because of the invalid name of cm-💩
+        cm('cm-abort'),
+      ],
+      errorPolicy='Abort',
+    ),
+    esp.applyGroup(
+      [
+        // Groups inherit the errorPolicy of the parent group if not set explicitly.
+        [
+          cm('cm-pre-abort-inherit'),
+          cm('cm-💨'),
+          // Should never be applied because of the invalid name of cm-💨
+          cm('cm-abort-inherit'),
+        ],
+      ],
+      errorPolicy='Abort',
+    ),
+    esp.applyGroup(
+      [
+        cm('cm-🧻'),
+        // Should be applied even though cm-🧻 is an invalid manifest
+        cm('cm-continue'),
+      ],
+      errorPolicy='Continue',
+    ),
+  ]),
+]`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			assert.Equal(t, "ApplyError", mr.Status.Status)
+
+			var cms corev1.ConfigMapList
+			require.NoError(t, c.List(ctx, &cms, client.InNamespace(testns)))
+			var cmNames []string
+			for _, cm := range cms.Items {
+				cmNames = append(cmNames, cm.Name)
+			}
+			assert.ElementsMatch(t, []string{"cm-continue", "cm-pre-abort-inherit"}, cmNames)
+		}, 5*time.Second, 100*time.Millisecond)
 	})
 }
 

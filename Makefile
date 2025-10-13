@@ -10,6 +10,8 @@ MAKEFLAGS += --no-builtin-variables
 
 PROJECT_ROOT_DIR = .
 
+export GOEXPERIMENT = jsonv2
+
 JSONNET_FILES   ?= $(shell find . -type f -not -path './vendor/*' \( -name '*.*jsonnet' -or -name '*.libsonnet' \))
 
 include Makefile.vars.mk

@@ -1,10 +1,10 @@
 package controllers
 
 import (
-	"bytes"
 	"context"
 	"crypto/md5"
-	encjson "encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
@@ -46,9 +45,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
+	"github.com/vshn/espejote/controllers/applygroup"
 )
-
-const jsonNull = "null"
 
 type Request struct {
 	TriggerInfo TriggerInfo
@@ -285,22 +283,29 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 		return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to render template: %w", err), TemplateError)
 	}
 
-	objects, err := r.unpackRenderedObjects(ctx, rendered)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to unpack rendered objects: %w", err)
+	applier := applygroup.Applier{
+		ApplyDefaults: applygroup.ApplyDefaults{
+			ApplyOptions:         managedResource.Spec.ApplyOptions,
+			FieldManagerFallback: fmt.Sprintf("managed-resource:%s", managedResource.GetName()),
+		},
 	}
-	l.Info("Unpacked objects from template", "count", len(objects))
 
-	// ensure namespaced objects have a namespace set
-	for _, obj := range objects {
-		namespaced, err := apiutil.IsObjectNamespaced(obj, r.Scheme, r.mapper)
-		if err != nil {
-			return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to determine if object is namespaced: %w", err), ApplyError)
-		}
-		if namespaced && obj.GetNamespace() == "" {
-			obj.SetNamespace(managedResource.GetNamespace())
-		}
+	if err := json.Unmarshal([]byte(rendered), &applier); err != nil {
+		return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), TemplateReturnError)
 	}
+
+	counts := map[applygroup.Kind]int{}
+	if err := applier.Walk(func(a *applygroup.Applier) error {
+		counts[a.Kind]++
+
+		if a.Resource == nil {
+			return nil
+		}
+		return r.defaultNamespaceIfNamespaced(a.Resource, managedResource.GetNamespace())
+	}); err != nil {
+		return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to process rendered template: %w", err), ApplyError)
+	}
+	l.Info("Applying rendered objects", "kinds", counts)
 
 	// apply objects returned by the template
 	c, err := r.uncachedClientForManagedResource(ctx, managedResource)
@@ -308,35 +313,22 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 		return ctrl.Result{}, fmt.Errorf("failed to get client for managed resource: %w", err)
 	}
 
-	applyErrs := make([]error, 0, len(objects))
-	for _, obj := range objects {
-		// check if object is marked for deletion
-		shouldDelete, opts, err := deleteOptionsFromRenderedObject(obj)
-		if err != nil {
-			applyErrs = append(applyErrs, fmt.Errorf("failed to get deletion flag: %w", err))
-			continue
-		}
-		if shouldDelete {
-			if err := c.Delete(ctx, stripUnstructuredForDelete(obj), opts...); client.IgnoreNotFound(err) != nil {
-				applyErrs = append(applyErrs, fmt.Errorf("failed to delete object %q %q: %w", obj.GetObjectKind(), obj.GetName(), err))
-			}
-			continue
-		}
-
-		patchOptions, err := patchOptionsFromObject(managedResource, obj)
-		if err != nil {
-			applyErrs = append(applyErrs, fmt.Errorf("failed to get patch options: %w", err))
-			continue
-		}
-		if err := c.Patch(ctx, obj, client.Apply, patchOptions...); err != nil {
-			applyErrs = append(applyErrs, fmt.Errorf("failed to apply object %q %q: %w", obj.GetObjectKind(), obj.GetName(), err))
-		}
-	}
-	if err := multierr.Combine(applyErrs...); err != nil {
-		return ctrl.Result{}, newEspejoteError(err, ApplyError)
+	if err := applier.Apply(ctx, c); err != nil {
+		return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to apply objects: %w", err), ApplyError)
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *ManagedResourceReconciler) defaultNamespaceIfNamespaced(obj client.Object, namespace string) error {
+	namespaced, err := apiutil.IsObjectNamespaced(obj, r.Scheme, r.mapper)
+	if err != nil {
+		return newEspejoteError(fmt.Errorf("failed to determine if object is namespaced: %w", err), ApplyError)
+	}
+	if namespaced && obj.GetNamespace() == "" {
+		obj.SetNamespace(namespace)
+	}
+	return nil
 }
 
 // recordReconcileErr records the given error as an event on the ManagedResource and updates the status accordingly.
@@ -404,11 +396,11 @@ func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1a
 	k := client.ObjectKeyFromObject(&mr)
 
 	hsh := md5.New()
-	henc := json.NewEncoder(hsh)
-	if err := henc.Encode(mr.Spec.Triggers); err != nil {
+	henc := jsontext.NewEncoder(hsh)
+	if err := json.MarshalEncode(henc, mr.Spec.Triggers, json.Deterministic(true)); err != nil {
 		return nil, fmt.Errorf("failed to encode triggers: %w", err)
 	}
-	if err := henc.Encode(mr.Spec.Context); err != nil {
+	if err := json.MarshalEncode(henc, mr.Spec.Context, json.Deterministic(true)); err != nil {
 		return nil, fmt.Errorf("failed to encode contexts: %w", err)
 	}
 	if _, err := io.WriteString(hsh, mr.Spec.ServiceAccountRef.Name); err != nil {
@@ -550,7 +542,7 @@ func (r *Renderer) Render(ctx context.Context, managedResource espejotev1alpha1.
 	if err != nil {
 		return "", fmt.Errorf("failed to render template: %w", err)
 	}
-	return strings.Trim(rendered, " \t\r\n"), nil
+	return rendered, nil
 }
 
 // renderTriggers renders the trigger information for the given Request.
@@ -664,41 +656,6 @@ func (r *ManagedResourceReconciler) uncachedClientForManagedResource(ctx context
 		Scheme: r.Scheme,
 		Mapper: r.mapper,
 	})
-}
-
-// unpackRenderedObjects unpacks the rendered template into a list of client.Objects.
-// The rendered template can be a single object, a list of objects or null.
-func (r *ManagedResourceReconciler) unpackRenderedObjects(ctx context.Context, rendered string) ([]*unstructured.Unstructured, error) {
-	var objects []*unstructured.Unstructured
-	if rendered != "" && strings.HasPrefix(rendered, "{") {
-		obj := &unstructured.Unstructured{}
-		if err := obj.UnmarshalJSON([]byte(rendered)); err != nil {
-			return nil, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), TemplateReturnError)
-		}
-		objects = append(objects, obj)
-	} else if rendered != "" && strings.HasPrefix(rendered, "[") {
-		// RawMessage is used to delay unmarshaling
-		var list []encjson.RawMessage
-		if err := json.Unmarshal([]byte(rendered), &list); err != nil {
-			return nil, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), TemplateReturnError)
-		}
-		objects = slices.Grow(objects, len(list))
-		for _, raw := range list {
-			if bytes.Equal(raw, []byte(jsonNull)) {
-				continue
-			}
-			obj := &unstructured.Unstructured{}
-			if err := obj.UnmarshalJSON(raw); err != nil {
-				return nil, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), TemplateReturnError)
-			}
-			objects = append(objects, obj)
-		}
-	} else if rendered == jsonNull {
-	} else {
-		return nil, newEspejoteError(fmt.Errorf("unexpected output from rendered template: %q", rendered), TemplateReturnError)
-	}
-
-	return objects, nil
 }
 
 // jwtTokenForSA returns a JWT token for the given service account.
@@ -937,135 +894,6 @@ func wrapNewInformerWithFilter(f func(o client.Object) (keep bool)) func(toolsca
 
 		return toolscache.NewSharedIndexInformer(flw, o, d, i)
 	}
-}
-
-// patchOptionsFromObject returns the patch options for the given ManagedResource and object.
-// The options are merged from the ManagedResource's ApplyOptions and the object's annotations.
-// Object annotations take precedence over ManagedResource's ApplyOptions.
-// The options are:
-// - FieldValidation: the field validation mode (default: "Strict")
-// - FieldManager: the field manager/owner (default: "managed-resource:<name>")
-// - ForceOwnership: if true, the ownership is forced (default: false)
-// Warning: this function modifies the object by removing the options from the annotations.
-func patchOptionsFromObject(mr espejotev1alpha1.ManagedResource, obj *unstructured.Unstructured) ([]client.PatchOption, error) {
-	const optionsKey = "__internal_use_espejote_lib_apply_options"
-
-	fieldValidation := mr.Spec.ApplyOptions.FieldValidation
-	objFieldValidation, ok, err := unstructured.NestedString(obj.UnstructuredContent(), optionsKey, "fieldValidation")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get apply option field validation: %w", err)
-	}
-	if ok {
-		fieldValidation = objFieldValidation
-	}
-	if fieldValidation == "" {
-		fieldValidation = "Strict"
-	}
-
-	fieldManager := mr.Spec.ApplyOptions.FieldManager
-	objFieldManager, ok, err := unstructured.NestedString(obj.UnstructuredContent(), optionsKey, "fieldManager")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get apply option fieldManager: %w", err)
-	}
-	if ok {
-		fieldManager = objFieldManager
-	}
-	if fieldManager == "" {
-		fieldManager = fmt.Sprintf("managed-resource:%s", mr.GetName())
-	}
-	objFieldManagerSuffix, _, err := unstructured.NestedString(obj.UnstructuredContent(), optionsKey, "fieldManagerSuffix")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get apply option fieldManagerSuffix: %w", err)
-	}
-	fieldManager += objFieldManagerSuffix
-
-	po := []client.PatchOption{client.FieldValidation(fieldValidation), client.FieldOwner(fieldManager)}
-
-	objForce, ok, err := unstructured.NestedBool(obj.UnstructuredContent(), optionsKey, "force")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get apply option force: %w", err)
-	}
-	if ok {
-		if objForce {
-			po = append(po, client.ForceOwnership)
-		}
-	} else if mr.Spec.ApplyOptions.Force {
-		po = append(po, client.ForceOwnership)
-	}
-
-	unstructured.RemoveNestedField(obj.UnstructuredContent(), optionsKey)
-
-	return po, nil
-}
-
-// stripUnstructuredForDelete returns a copy of the given unstructured object with only the GroupVersionKind, Namespace and Name set.
-func stripUnstructuredForDelete(u *unstructured.Unstructured) *unstructured.Unstructured {
-	cp := &unstructured.Unstructured{}
-	cp.SetGroupVersionKind(u.GroupVersionKind())
-	cp.SetNamespace(u.GetNamespace())
-	cp.SetName(u.GetName())
-	return cp
-}
-
-// deleteOptionsFromRenderedObject extracts the deletion options from the given unstructured object.
-// The deletion options are stored in the object under the "__internal_use_espejote_lib_deletion" key.
-// The deletion options are:
-// - delete: bool, required, if true the object should be deleted
-// - gracePeriodSeconds: int, optional, the grace period for the deletion
-// - propagationPolicy: string, optional, the deletion propagation policy
-// - preconditionUID: string, optional, the UID of the object that must match for deletion
-// - preconditionResourceVersion: string, optional, the resource version of the object that must match for deletion
-// The first return value is true if the object should be deleted.
-func deleteOptionsFromRenderedObject(obj *unstructured.Unstructured) (shouldDelete bool, opts []client.DeleteOption, err error) {
-	const deletionKey = "__internal_use_espejote_lib_deletion"
-
-	shouldDelete, _, err = unstructured.NestedBool(obj.UnstructuredContent(), deletionKey, "delete")
-	if err != nil {
-		return false, nil, fmt.Errorf("failed to get deletion flag: %w", err)
-	}
-	if !shouldDelete {
-		return false, nil, nil
-	}
-
-	gracePeriodSeconds, ok, err := unstructured.NestedInt64(obj.UnstructuredContent(), deletionKey, "gracePeriodSeconds")
-	if err != nil {
-		return false, nil, fmt.Errorf("failed to get deletion grace period: %w", err)
-	}
-	if ok {
-		opts = append(opts, client.GracePeriodSeconds(gracePeriodSeconds))
-	}
-
-	propagationPolicy, ok, err := unstructured.NestedString(obj.UnstructuredContent(), deletionKey, "propagationPolicy")
-	if err != nil {
-		return false, nil, fmt.Errorf("failed to get deletion propagation policy: %w", err)
-	}
-	if ok {
-		opts = append(opts, client.PropagationPolicy(metav1.DeletionPropagation(propagationPolicy)))
-	}
-
-	preconditions := metav1.Preconditions{}
-	hasPreconditions := false
-	preconditionUID, ok, err := unstructured.NestedString(obj.UnstructuredContent(), deletionKey, "preconditionUID")
-	if err != nil {
-		return false, nil, fmt.Errorf("failed to get deletion precondition UID: %w", err)
-	}
-	if ok {
-		hasPreconditions = true
-		preconditions.UID = ptr.To(types.UID(preconditionUID))
-	}
-	preconditionResourceVersion, ok, err := unstructured.NestedString(obj.UnstructuredContent(), deletionKey, "preconditionResourceVersion")
-	if err != nil {
-		return false, nil, fmt.Errorf("failed to get deletion precondition resource version: %w", err)
-	}
-	if ok {
-		hasPreconditions = true
-		preconditions.ResourceVersion = &preconditionResourceVersion
-	}
-	if hasPreconditions {
-		opts = append(opts, client.Preconditions(preconditions))
-	}
-
-	return
 }
 
 // findFirstDuplicate finds the first duplicate element in the given slice.
