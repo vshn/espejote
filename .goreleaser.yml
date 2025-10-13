@@ -7,6 +7,7 @@ before:
 builds:
 - env:
   - CGO_ENABLED=0 # this is needed otherwise the Docker image build is faulty
+  - GOEXPERIMENT=jsonv2
   goarch:
   - amd64
   - arm64
