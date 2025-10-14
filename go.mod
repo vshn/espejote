@@ -2,7 +2,7 @@ module github.com/vshn/espejote
 
 go 1.25
 
-toolchain go1.25.0
+toolchain go1.25.3
 
 require (
 	github.com/DmitriyVTitov/size v1.5.0
