@@ -84,7 +84,7 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ admissionRequest)
 				},
 			},
 
-			Rules:                   admission.Spec.WebhookConfiguration.Rules,
+			Rules:                   rulesWithScopeEnforced(admission.Spec.WebhookConfiguration.Rules, admissionregistrationv1.NamespacedScope),
 			FailurePolicy:           admission.Spec.WebhookConfiguration.FailurePolicy,
 			MatchPolicy:             admission.Spec.WebhookConfiguration.MatchPolicy,
 			ObjectSelector:          admission.Spec.WebhookConfiguration.ObjectSelector,
@@ -120,7 +120,7 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ admissionRequest)
 				},
 			},
 
-			Rules:                   admission.Spec.WebhookConfiguration.Rules,
+			Rules:                   rulesWithScopeEnforced(admission.Spec.WebhookConfiguration.Rules, admissionregistrationv1.NamespacedScope),
 			FailurePolicy:           admission.Spec.WebhookConfiguration.FailurePolicy,
 			MatchPolicy:             admission.Spec.WebhookConfiguration.MatchPolicy,
 			ObjectSelector:          admission.Spec.WebhookConfiguration.ObjectSelector,
@@ -158,4 +158,14 @@ func filterRequestByName(name string, next func(context.Context, client.Object) 
 
 func singleAdmissionRequest(context.Context, client.Object) []admissionRequest {
 	return make([]admissionRequest, 1)
+}
+
+// rulesWithScopeEnforced returns a copy of the given rules with the given scope enforced.
+func rulesWithScopeEnforced(rules []admissionregistrationv1.RuleWithOperations, scope admissionregistrationv1.ScopeType) []admissionregistrationv1.RuleWithOperations {
+	newRules := make([]admissionregistrationv1.RuleWithOperations, len(rules))
+	for i, rule := range rules {
+		rule.DeepCopyInto(&newRules[i])
+		newRules[i].Scope = &scope
+	}
+	return newRules
 }

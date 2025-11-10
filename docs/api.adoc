@@ -64,6 +64,7 @@ AdmissionSpec defines the desired state of Admission.
 | *`webhookConfiguration`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-webhookconfiguration[$$WebhookConfiguration$$]__ | WebhookConfiguration defines the configuration for the Admission webhook. +
 Allows fine grained control over what is forwarded to the webhook. +
 Note that Admission enforces namespace isolation. The namespaceSelector field is set to the namespace of the Admission and can't be overridden. +
+The rules are enforced to only match namespaced resources. +
 There will be a ClusterAdmission in the future to allow for cluster wide admission control. + |  | 
 | *`mutating`* __boolean__ | Mutating defines if the Admission should create a MutatingWebhookConfiguration or a ValidatingWebhookConfiguration. + |  | 
 | *`template`* __string__ | Template contains the Jsonnet code to decide the admission result. +

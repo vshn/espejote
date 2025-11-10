@@ -10,6 +10,7 @@ type AdmissionSpec struct {
 	// WebhookConfiguration defines the configuration for the Admission webhook.
 	// Allows fine grained control over what is forwarded to the webhook.
 	// Note that Admission enforces namespace isolation. The namespaceSelector field is set to the namespace of the Admission and can't be overridden.
+	// The rules are enforced to only match namespaced resources.
 	// There will be a ClusterAdmission in the future to allow for cluster wide admission control.
 	WebhookConfiguration WebhookConfiguration `json:"webhookConfiguration,omitempty"`
 

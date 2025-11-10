@@ -129,6 +129,9 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 	assert.Equal(t, strings.Join([]string{"/dynamic", testns, "mut"}, "/"), *mutwebhook.Webhooks[0].ClientConfig.Service.Path)
 	assert.Equal(t, ptr.To(int32(subject.WebhookPort)), mutwebhook.Webhooks[0].ClientConfig.Service.Port)
 	assert.Equal(t, map[string]string{"kubernetes.io/metadata.name": testns}, mutwebhook.Webhooks[0].NamespaceSelector.MatchLabels)
+	if assert.Len(t, mutwebhook.Webhooks[0].Rules, 1) {
+		assert.Equal(t, ptr.To(admissionregistrationv1.NamespacedScope), mutwebhook.Webhooks[0].Rules[0].Scope)
+	}
 
 	var valwebhook admissionregistrationv1.ValidatingWebhookConfiguration
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
@@ -140,6 +143,9 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 	assert.Equal(t, strings.Join([]string{"/dynamic", testns, "val"}, "/"), *valwebhook.Webhooks[0].ClientConfig.Service.Path)
 	assert.Equal(t, ptr.To(int32(subject.WebhookPort)), valwebhook.Webhooks[0].ClientConfig.Service.Port)
 	assert.Equal(t, map[string]string{"kubernetes.io/metadata.name": testns}, valwebhook.Webhooks[0].NamespaceSelector.MatchLabels)
+	if assert.Len(t, valwebhook.Webhooks[0].Rules, 1) {
+		assert.Equal(t, ptr.To(admissionregistrationv1.NamespacedScope), valwebhook.Webhooks[0].Rules[0].Scope)
+	}
 
 	require.NoError(t, c.Delete(ctx, &val2))
 	require.NoError(t, c.Delete(ctx, &mut))
