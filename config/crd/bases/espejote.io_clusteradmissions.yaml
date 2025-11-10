@@ -4,15 +4,15 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
-  name: admissions.espejote.io
+  name: clusteradmissions.espejote.io
 spec:
   group: espejote.io
   names:
-    kind: Admission
-    listKind: AdmissionList
-    plural: admissions
-    singular: admission
-  scope: Namespaced
+    kind: ClusterAdmission
+    listKind: ClusterAdmissionList
+    plural: clusteradmissions
+    singular: clusteradmission
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.status
@@ -22,8 +22,8 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          Admission is the Schema for the Admissions API.
-          Admission currently fully relies on cert-manager for certificate management and webhook certificate injection.
+          ClusterAdmission is the Schema for the ClusterAdmissions API.
+          ClusterAdmission currently fully relies on cert-manager for certificate management and webhook certificate injection.
           See the kustomize overlays for more information.
         properties:
           apiVersion:
@@ -44,7 +44,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: AdmissionSpec defines the desired state of Admission.
+            description: ClusterAdmissionSpec defines the desired state of ClusterAdmission.
             properties:
               mutating:
                 description: Mutating defines if the Admission should create a MutatingWebhookConfiguration
@@ -60,15 +60,12 @@ spec:
                   - "espejote.libsonnet": The built in library for accessing the context and trigger information.
                   - "lib/<NAME>/<KEY>" libraries in the shared library namespace. The name corresponds to the name of the JsonnetLibrary object and the key to the key in the data field.
                     The namespace is configured at controller startup and normally points to the namespace of the controller.
-                  - "<NAME>/<KEY>" libraries in the same namespace as the Admission. The name corresponds to the name of the JsonnetLibrary object and the key to the key in the data field.
+                  Note that ClusterAdmission cannot reference non-library JsonnetLibrary objects.
                 type: string
               webhookConfiguration:
                 description: |-
                   WebhookConfiguration defines the configuration for the Admission webhook.
                   Allows fine grained control over what is forwarded to the webhook.
-                  Note that Admission enforces namespace isolation. The namespaceSelector field is set to the namespace of the Admission and can't be overridden.
-                  The rules are enforced to only match namespaced resources.
-                  Use ClusterAdmission for cluster scoped webhooks and resources.
                 properties:
                   failurePolicy:
                     description: |-
@@ -145,6 +142,95 @@ spec:
 
                       Defaults to "Equivalent"
                     type: string
+                  namespaceSelector:
+                    description: |-
+                      NamespaceSelector decides whether to run the webhook on an object based
+                      on whether the namespace for that object matches the selector. If the
+                      object itself is a namespace, the matching is performed on
+                      object.metadata.labels. If the object is another cluster scoped resource,
+                      it never skips the webhook.
+
+                      For example, to run the webhook on any objects whose namespace is not
+                      associated with "runlevel" of "0" or "1";  you will set the selector as
+                      follows:
+                      "namespaceSelector": {
+                        "matchExpressions": [
+                          {
+                            "key": "runlevel",
+                            "operator": "NotIn",
+                            "values": [
+                              "0",
+                              "1"
+                            ]
+                          }
+                        ]
+                      }
+
+                      If instead you want to only run the webhook on any objects whose
+                      namespace is associated with the "environment" of "prod" or "staging";
+                      you will set the selector as follows:
+                      "namespaceSelector": {
+                        "matchExpressions": [
+                          {
+                            "key": "environment",
+                            "operator": "In",
+                            "values": [
+                              "prod",
+                              "staging"
+                            ]
+                          }
+                        ]
+                      }
+
+                      See
+                      https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+                      for more examples of label selectors.
+
+                      Default to the empty LabelSelector, which matches everything.
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
                   objectSelector:
                     description: |-
                       ObjectSelector decides whether to run the webhook based on if the

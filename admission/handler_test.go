@@ -53,6 +53,32 @@ func Test_Handler_AdmissionNotFound(t *testing.T) {
 	assert.Equal(t, "Admission not found", admres.Response.Result.Message)
 }
 
+func Test_Handler_ClusterAdmissionNotFound(t *testing.T) {
+	t.Parallel()
+
+	c := buildFakeClient(t)
+
+	subject := espadmission.NewHandler(c, "default")
+	require.NotNil(t, subject)
+
+	w := httptest.NewRecorder()
+	req := newClusterScopedAdmissionRequest(t, "test", admissionv1.AdmissionRequest{
+		UID: "test",
+	})
+	subject.ServeHTTP(w, req)
+	res := w.Result()
+	require.Equal(t, http.StatusOK, res.StatusCode)
+
+	require.NotNil(t, res.Body)
+	defer res.Body.Close()
+	var admres admissionv1.AdmissionReview
+	require.NoError(t, json.NewDecoder(res.Body).Decode(&admres))
+	require.NotNil(t, admres.Response)
+	require.NotNil(t, admres.Response.Result)
+	assert.Equal(t, http.StatusOK, int(admres.Response.Result.Code))
+	assert.Equal(t, "ClusterAdmission not found", admres.Response.Result.Message)
+}
+
 func Test_Handler_Allowed(t *testing.T) {
 	t.Parallel()
 
@@ -75,6 +101,43 @@ func Test_Handler_Allowed(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req := newAdmissionRequest(t, "test", "default", admissionv1.AdmissionRequest{
+		UID: "test",
+	})
+	subject.ServeHTTP(w, req)
+	res := w.Result()
+	require.Equal(t, http.StatusOK, res.StatusCode)
+
+	require.NotNil(t, res.Body)
+	defer res.Body.Close()
+	var admres admissionv1.AdmissionReview
+	require.NoError(t, json.NewDecoder(res.Body).Decode(&admres))
+	require.NotNil(t, admres.Response)
+	require.NotNil(t, admres.Response.Result)
+	assert.Equal(t, http.StatusOK, int(admres.Response.Result.Code))
+	assert.Equal(t, "Nice job!", admres.Response.Result.Message)
+}
+
+func Test_Handler_Allowed_ClusterScoped(t *testing.T) {
+	t.Parallel()
+
+	c := buildFakeClient(t, &espejotev1alpha1.ClusterAdmission{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test",
+		},
+		Spec: espejotev1alpha1.ClusterAdmissionSpec{
+			Template: `
+			local esp = import 'espejote.libsonnet';
+
+			esp.ALPHA.admission.allowed("Nice job!")
+`,
+		},
+	})
+
+	subject := espadmission.NewHandler(c, "default")
+	require.NotNil(t, subject)
+
+	w := httptest.NewRecorder()
+	req := newClusterScopedAdmissionRequest(t, "test", admissionv1.AdmissionRequest{
 		UID: "test",
 	})
 	subject.ServeHTTP(w, req)
@@ -263,6 +326,23 @@ func newAdmissionRequest(t *testing.T, name, namespace string, admreq admissionv
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("name", name)
 	req.SetPathValue("namespace", namespace)
+	return req
+}
+
+func newClusterScopedAdmissionRequest(t *testing.T, name string, admreq admissionv1.AdmissionRequest) *http.Request {
+	t.Helper()
+
+	b := admissionv1.AdmissionReview{
+		Request: &admreq,
+	}
+	b.SetGroupVersionKind(admissionv1.SchemeGroupVersion.WithKind("AdmissionReview"))
+
+	body := new(bytes.Buffer)
+	require.NoError(t, json.NewEncoder(body).Encode(b))
+	req := httptest.NewRequest("GET", path.Join("/dynamic-cluster", name), body)
+	req = req.WithContext(log.IntoContext(req.Context(), testr.New(t)))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("name", name)
 	return req
 }
 

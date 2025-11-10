@@ -69,6 +69,7 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 							admissionregistrationv1.Create,
 						},
 						Rule: admissionregistrationv1.Rule{
+							Scope:       ptr.To(admissionregistrationv1.AllScopes),
 							APIGroups:   []string{"*"},
 							APIVersions: []string{"*"},
 							Resources:   []string{"*"},
@@ -104,13 +105,13 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 
 	require.NoError(t, c.Create(ctx, &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "zzz-" + testns,
+			Name: "zz-" + testns,
 		},
 	}))
 	mut2 := espejotev1alpha1.Admission{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "mut",
-			Namespace: "zzz-" + testns,
+			Namespace: "zz-" + testns,
 		},
 		Spec: espejotev1alpha1.AdmissionSpec{
 			Mutating:             true,
@@ -119,41 +120,148 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, &mut2))
 
+	clusterVal := espejotev1alpha1.ClusterAdmission{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "val-" + testns,
+		},
+		Spec: espejotev1alpha1.ClusterAdmissionSpec{
+			Mutating: false,
+			WebhookConfiguration: espejotev1alpha1.WebhookConfigurationWithNamespaceSelector{
+				NamespaceSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      "runlevel",
+							Operator: metav1.LabelSelectorOpNotIn,
+							Values:   []string{"0", "1"},
+						},
+					},
+				},
+				WebhookConfiguration: *val.Spec.WebhookConfiguration.DeepCopy(),
+			},
+		},
+	}
+	require.NoError(t, c.Create(ctx, &clusterVal))
+
+	clusterVal2 := espejotev1alpha1.ClusterAdmission{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "zz-val-" + testns,
+		},
+		Spec: espejotev1alpha1.ClusterAdmissionSpec{
+			Mutating:             false,
+			WebhookConfiguration: *clusterVal.Spec.WebhookConfiguration.DeepCopy(),
+		},
+	}
+	require.NoError(t, c.Create(ctx, &clusterVal2))
+
+	clusterMut := espejotev1alpha1.ClusterAdmission{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "mut-" + testns,
+		},
+		Spec: espejotev1alpha1.ClusterAdmissionSpec{
+			Mutating:             true,
+			WebhookConfiguration: *clusterVal.Spec.WebhookConfiguration.DeepCopy(),
+		},
+	}
+	require.NoError(t, c.Create(ctx, &clusterMut))
+
+	clusterMut2 := espejotev1alpha1.ClusterAdmission{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "zz-mut-" + testns,
+		},
+		Spec: espejotev1alpha1.ClusterAdmissionSpec{
+			Mutating:             true,
+			WebhookConfiguration: *clusterVal.Spec.WebhookConfiguration.DeepCopy(),
+		},
+	}
+	require.NoError(t, c.Create(ctx, &clusterMut2))
+
 	var mutwebhook admissionregistrationv1.MutatingWebhookConfiguration
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		require.NoError(t, c.Get(ctx, client.ObjectKey{Name: webhookName}, &mutwebhook))
-		require.Len(t, mutwebhook.Webhooks, 2)
+		require.Len(t, mutwebhook.Webhooks, 4)
 	}, 5*time.Second, 10*time.Millisecond)
-	assert.Equal(t, strings.Join([]string{"mut", testns, "espejote.io"}, "."), mutwebhook.Webhooks[0].Name)
-	assert.Equal(t, "system", mutwebhook.Webhooks[0].ClientConfig.Service.Namespace)
-	assert.Equal(t, strings.Join([]string{"/dynamic", testns, "mut"}, "/"), *mutwebhook.Webhooks[0].ClientConfig.Service.Path)
-	assert.Equal(t, ptr.To(int32(subject.WebhookPort)), mutwebhook.Webhooks[0].ClientConfig.Service.Port)
-	assert.Equal(t, map[string]string{"kubernetes.io/metadata.name": testns}, mutwebhook.Webhooks[0].NamespaceSelector.MatchLabels)
-	if assert.Len(t, mutwebhook.Webhooks[0].Rules, 1) {
-		assert.Equal(t, ptr.To(admissionregistrationv1.NamespacedScope), mutwebhook.Webhooks[0].Rules[0].Scope)
+	assertWebhookNames(t, mutwebhook, []string{
+		strings.Join([]string{mut.Name, mut.Namespace, "namespaced.espejote.io"}, "."),
+		strings.Join([]string{mut2.Name, mut2.Namespace, "namespaced.espejote.io"}, "."),
+		strings.Join([]string{clusterMut.Name, "cluster.espejote.io"}, "."),
+		strings.Join([]string{clusterMut2.Name, "cluster.espejote.io"}, "."),
+	})
+	{
+		c := mutwebhook.Webhooks[0]
+		assert.Equal(t, "system", c.ClientConfig.Service.Namespace)
+		assert.Equal(t, strings.Join([]string{"/dynamic", mut.Namespace, mut.Name}, "/"), *c.ClientConfig.Service.Path)
+		assert.Equal(t, ptr.To(int32(subject.WebhookPort)), c.ClientConfig.Service.Port)
+		assert.Equal(t, map[string]string{"kubernetes.io/metadata.name": testns}, c.NamespaceSelector.MatchLabels)
+		if assert.Len(t, c.Rules, 1) {
+			assert.Equal(t, ptr.To(admissionregistrationv1.NamespacedScope), c.Rules[0].Scope, "scope should be Namespaced for namespaced admission")
+		}
+	}
+	{
+		c := mutwebhook.Webhooks[2]
+		assert.Equal(t, "system", c.ClientConfig.Service.Namespace)
+		assert.Equal(t, strings.Join([]string{"/dynamic-cluster", clusterMut.Name}, "/"), *c.ClientConfig.Service.Path)
+		assert.Equal(t, ptr.To(int32(subject.WebhookPort)), c.ClientConfig.Service.Port)
+		assert.Equal(t, &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      "runlevel",
+					Operator: metav1.LabelSelectorOpNotIn,
+					Values:   []string{"0", "1"},
+				},
+			},
+		}, c.NamespaceSelector)
+		if assert.Len(t, c.Rules, 1) {
+			assert.Equal(t, ptr.To(admissionregistrationv1.AllScopes), c.Rules[0].Scope)
+		}
 	}
 
 	var valwebhook admissionregistrationv1.ValidatingWebhookConfiguration
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		require.NoError(t, c.Get(ctx, client.ObjectKey{Name: webhookName}, &valwebhook))
-		require.Len(t, valwebhook.Webhooks, 2)
+		require.Len(t, valwebhook.Webhooks, 4)
 	}, 5*time.Second, 10*time.Millisecond)
-	assert.Equal(t, strings.Join([]string{"val", testns, "espejote.io"}, "."), valwebhook.Webhooks[0].Name)
-	assert.Equal(t, "system", valwebhook.Webhooks[0].ClientConfig.Service.Namespace)
-	assert.Equal(t, strings.Join([]string{"/dynamic", testns, "val"}, "/"), *valwebhook.Webhooks[0].ClientConfig.Service.Path)
-	assert.Equal(t, ptr.To(int32(subject.WebhookPort)), valwebhook.Webhooks[0].ClientConfig.Service.Port)
-	assert.Equal(t, map[string]string{"kubernetes.io/metadata.name": testns}, valwebhook.Webhooks[0].NamespaceSelector.MatchLabels)
-	if assert.Len(t, valwebhook.Webhooks[0].Rules, 1) {
-		assert.Equal(t, ptr.To(admissionregistrationv1.NamespacedScope), valwebhook.Webhooks[0].Rules[0].Scope)
+	assertWebhookNames(t, valwebhook, []string{
+		strings.Join([]string{val.Name, val.Namespace, "namespaced.espejote.io"}, "."),
+		strings.Join([]string{val2.Name, val2.Namespace, "namespaced.espejote.io"}, "."),
+		strings.Join([]string{clusterVal.Name, "cluster.espejote.io"}, "."),
+		strings.Join([]string{clusterVal2.Name, "cluster.espejote.io"}, "."),
+	})
+	{
+		c := valwebhook.Webhooks[0]
+		assert.Equal(t, "system", c.ClientConfig.Service.Namespace)
+		assert.Equal(t, strings.Join([]string{"/dynamic", val.Namespace, val.Name}, "/"), *c.ClientConfig.Service.Path)
+		assert.Equal(t, ptr.To(int32(subject.WebhookPort)), c.ClientConfig.Service.Port)
+		assert.Equal(t, map[string]string{"kubernetes.io/metadata.name": testns}, c.NamespaceSelector.MatchLabels)
+		if assert.Len(t, c.Rules, 1) {
+			assert.Equal(t, ptr.To(admissionregistrationv1.NamespacedScope), c.Rules[0].Scope, "scope should be Namespaced for namespaced admission")
+		}
+	}
+	{
+		c := valwebhook.Webhooks[2]
+		assert.Equal(t, "system", c.ClientConfig.Service.Namespace)
+		assert.Equal(t, strings.Join([]string{"/dynamic-cluster", clusterVal.Name}, "/"), *c.ClientConfig.Service.Path)
+		assert.Equal(t, ptr.To(int32(subject.WebhookPort)), c.ClientConfig.Service.Port)
+		assert.Equal(t, &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      "runlevel",
+					Operator: metav1.LabelSelectorOpNotIn,
+					Values:   []string{"0", "1"},
+				},
+			},
+		}, c.NamespaceSelector)
+		if assert.Len(t, c.Rules, 1) {
+			assert.Equal(t, ptr.To(admissionregistrationv1.AllScopes), c.Rules[0].Scope)
+		}
 	}
 
-	require.NoError(t, c.Delete(ctx, &val2))
-	require.NoError(t, c.Delete(ctx, &mut))
-	require.NoError(t, c.Delete(ctx, &mut2))
+	for _, o := range []client.Object{&val2, &clusterVal2, &mut, &mut2, &clusterMut, &clusterMut2} {
+		require.NoError(t, c.Delete(ctx, o))
+	}
 
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		require.NoError(t, c.Get(ctx, client.ObjectKey{Name: webhookName}, &valwebhook))
-		require.Len(t, valwebhook.Webhooks, 1)
+		require.Len(t, valwebhook.Webhooks, 2)
 		require.NoError(t, c.Get(ctx, client.ObjectKey{Name: webhookName}, &mutwebhook))
 		require.Len(t, mutwebhook.Webhooks, 0)
 	}, 5*time.Second, 10*time.Millisecond)
@@ -166,6 +274,26 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		require.NoError(t, c.Get(ctx, client.ObjectKey{Name: webhookName}, &valwebhook))
-		require.Len(t, valwebhook.Webhooks, 1)
+		require.Len(t, valwebhook.Webhooks, 2)
 	}, 5*time.Second, 10*time.Millisecond)
+}
+
+// assertWebhookNames asserts that the given webhook (mutating or validating) has the expected webhook names in correct order.
+func assertWebhookNames(t *testing.T, webhook any, expectedNames []string, msgAndArgs ...any) {
+	switch w := webhook.(type) {
+	case admissionregistrationv1.MutatingWebhookConfiguration:
+		names := make([]string, 0, len(w.Webhooks))
+		for _, wh := range w.Webhooks {
+			names = append(names, wh.Name)
+		}
+		assert.Equal(t, expectedNames, names, msgAndArgs...)
+	case admissionregistrationv1.ValidatingWebhookConfiguration:
+		names := make([]string, 0, len(w.Webhooks))
+		for _, wh := range w.Webhooks {
+			names = append(names, wh.Name)
+		}
+		assert.Equal(t, expectedNames, names, msgAndArgs...)
+	default:
+		t.Fatalf("unsupported webhook type: %T", webhook)
+	}
 }
