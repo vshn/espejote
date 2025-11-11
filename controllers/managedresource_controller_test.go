@@ -1823,15 +1823,18 @@ if esp.triggerName() == 'trigger' then {
 espejote_cached_objects{managedresource="test",name="all-cms",namespace="`+testns+`",type="context"} 100
 espejote_cached_objects{managedresource="test",name="cms",namespace="`+testns+`",type="context"} 50
 espejote_cached_objects{managedresource="test",name="matching-cms",namespace="`+testns+`",type="trigger"} 2
+# HELP espejote_reconciles_total Total number of reconciles by trigger.
+# TYPE espejote_reconciles_total counter
+espejote_reconciles_total{managedresource="test",namespace="`+testns+`",trigger="matching-cms"} 2
+`), "espejote_cached_objects", "espejote_reconciles_total"))
+			assert.NoError(t, testutil.GatherAndCompareInEpsilon(inNsGatherer, strings.NewReader(`
 # HELP espejote_cache_size_bytes Size of the cache in bytes. Note that this is an approximation. The metric should not be compared across different espejote versions.
 # TYPE espejote_cache_size_bytes gauge
 espejote_cache_size_bytes{managedresource="test",name="all-cms",namespace="`+testns+`",type="context"} 67522
 espejote_cache_size_bytes{managedresource="test",name="cms",namespace="`+testns+`",type="context"} 37077
 espejote_cache_size_bytes{managedresource="test",name="matching-cms",namespace="`+testns+`",type="trigger"} 1674
-# HELP espejote_reconciles_total Total number of reconciles by trigger.
-# TYPE espejote_reconciles_total counter
-espejote_reconciles_total{managedresource="test",namespace="`+testns+`",trigger="matching-cms"} 2
-`), "espejote_cached_objects", "espejote_cache_size_bytes", "espejote_reconciles_total"), "espejote_cache_size_bytes may needs updating when switching between client or apiserver versions")
+`), 0.1, "espejote_cache_size_bytes"), "espejote_cache_size_bytes may needs updating when switching between client or apiserver versions")
+
 		}, 5*time.Second, 100*time.Millisecond)
 
 		t.Log("error metrics")
