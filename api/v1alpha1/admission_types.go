@@ -10,7 +10,8 @@ type AdmissionSpec struct {
 	// WebhookConfiguration defines the configuration for the Admission webhook.
 	// Allows fine grained control over what is forwarded to the webhook.
 	// Note that Admission enforces namespace isolation. The namespaceSelector field is set to the namespace of the Admission and can't be overridden.
-	// There will be a ClusterAdmission in the future to allow for cluster wide admission control.
+	// The rules are enforced to only match namespaced resources.
+	// Use ClusterAdmission for cluster scoped webhooks and resources.
 	WebhookConfiguration WebhookConfiguration `json:"webhookConfiguration,omitempty"`
 
 	// Mutating defines if the Admission should create a MutatingWebhookConfiguration or a ValidatingWebhookConfiguration.
@@ -26,6 +27,77 @@ type AdmissionSpec struct {
 	//   The namespace is configured at controller startup and normally points to the namespace of the controller.
 	// - "<NAME>/<KEY>" libraries in the same namespace as the Admission. The name corresponds to the name of the JsonnetLibrary object and the key to the key in the data field.
 	Template string `json:"template,omitempty"`
+}
+
+// ClusterAdmissionSpec defines the desired state of ClusterAdmission.
+type ClusterAdmissionSpec struct {
+	// WebhookConfiguration defines the configuration for the Admission webhook.
+	// Allows fine grained control over what is forwarded to the webhook.
+	WebhookConfiguration WebhookConfigurationWithNamespaceSelector `json:"webhookConfiguration,omitempty"`
+
+	// Mutating defines if the Admission should create a MutatingWebhookConfiguration or a ValidatingWebhookConfiguration.
+	Mutating bool `json:"mutating,omitempty"`
+
+	// Template contains the Jsonnet code to decide the admission result.
+	// Admission responses should be created using the `espejote.libsonnet` library.
+	// `esp.ALPHA.admission.allowed("Nice job!")`, `esp.ALPHA.admission.denied("Bad job!")`, `esp.ALPHA.admission.patched("added user annotation", [jsonPatchOp("add", "/metadata/annotations/user", "tom")])` are examples of valid responses.
+	// The template can reference JsonnetLibrary objects by importing them.
+	// JsonnetLibrary objects have the following structure:
+	// - "espejote.libsonnet": The built in library for accessing the context and trigger information.
+	// - "lib/<NAME>/<KEY>" libraries in the shared library namespace. The name corresponds to the name of the JsonnetLibrary object and the key to the key in the data field.
+	//   The namespace is configured at controller startup and normally points to the namespace of the controller.
+	// Note that ClusterAdmission cannot reference non-library JsonnetLibrary objects.
+	Template string `json:"template,omitempty"`
+}
+
+type WebhookConfigurationWithNamespaceSelector struct {
+	// NamespaceSelector decides whether to run the webhook on an object based
+	// on whether the namespace for that object matches the selector. If the
+	// object itself is a namespace, the matching is performed on
+	// object.metadata.labels. If the object is another cluster scoped resource,
+	// it never skips the webhook.
+	//
+	// For example, to run the webhook on any objects whose namespace is not
+	// associated with "runlevel" of "0" or "1";  you will set the selector as
+	// follows:
+	// "namespaceSelector": {
+	//   "matchExpressions": [
+	//     {
+	//       "key": "runlevel",
+	//       "operator": "NotIn",
+	//       "values": [
+	//         "0",
+	//         "1"
+	//       ]
+	//     }
+	//   ]
+	// }
+	//
+	// If instead you want to only run the webhook on any objects whose
+	// namespace is associated with the "environment" of "prod" or "staging";
+	// you will set the selector as follows:
+	// "namespaceSelector": {
+	//   "matchExpressions": [
+	//     {
+	//       "key": "environment",
+	//       "operator": "In",
+	//       "values": [
+	//         "prod",
+	//         "staging"
+	//       ]
+	//     }
+	//   ]
+	// }
+	//
+	// See
+	// https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+	// for more examples of label selectors.
+	//
+	// Default to the empty LabelSelector, which matches everything.
+	// +optional
+	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty" protobuf:"bytes,5,opt,name=namespaceSelector"`
+
+	WebhookConfiguration `json:",inline"`
 }
 
 type WebhookConfiguration struct {
@@ -134,6 +206,29 @@ type AdmissionList struct {
 	Items           []Admission `json:"items"`
 }
 
+//+kubebuilder:object:root=true
+
+// ClusterAdmission is the Schema for the ClusterAdmissions API.
+// ClusterAdmission currently fully relies on cert-manager for certificate management and webhook certificate injection.
+// See the kustomize overlays for more information.
+// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.status`
+type ClusterAdmission struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec ClusterAdmissionSpec `json:"spec,omitempty"`
+}
+
+//+kubebuilder:object:root=true
+
+// ClusterAdmissionList contains a list of ClusterAdmission
+type ClusterAdmissionList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []ClusterAdmission `json:"items"`
+}
+
 func init() {
-	SchemeBuilder.Register(&Admission{}, &AdmissionList{})
+	SchemeBuilder.Register(&Admission{}, &AdmissionList{}, &ClusterAdmission{}, &ClusterAdmissionList{})
 }

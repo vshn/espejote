@@ -33,9 +33,9 @@ type AdmissionReconciler struct {
 
 type admissionRequest struct{}
 
-//+kubebuilder:rbac:groups=espejote.io,resources=admissions,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=espejote.io,resources=admissions/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=espejote.io,resources=admissions/finalizers,verbs=update
+//+kubebuilder:rbac:groups=espejote.io,resources=clusteradmissions;admissions,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=espejote.io,resources=clusteradmissions/status;admissions/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=espejote.io,resources=clusteradmissions/finalizers;admissions/finalizers,verbs=update
 
 //+kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations;validatingwebhookconfigurations,verbs=get;list;watch;create;update;patch;delete
 
@@ -48,7 +48,6 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ admissionRequest)
 	if err := r.List(ctx, &admissions); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to list admissions: %w", err)
 	}
-
 	slices.SortFunc(admissions.Items, func(a, b espejotev1alpha1.Admission) int {
 		return 10*strings.Compare(a.GetNamespace(), b.GetNamespace()) + strings.Compare(a.GetName(), b.GetName())
 	})
@@ -62,13 +61,30 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ admissionRequest)
 		}
 	}
 
+	var clusterAdmissions espejotev1alpha1.ClusterAdmissionList
+	if err := r.List(ctx, &clusterAdmissions); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to list cluster admissions: %w", err)
+	}
+	slices.SortFunc(clusterAdmissions.Items, func(a, b espejotev1alpha1.ClusterAdmission) int {
+		return strings.Compare(a.GetName(), b.GetName())
+	})
+	validatingClusterAdmissions := make([]espejotev1alpha1.ClusterAdmission, 0, len(clusterAdmissions.Items))
+	mutatingClusterAdmissions := make([]espejotev1alpha1.ClusterAdmission, 0, len(clusterAdmissions.Items))
+	for _, admission := range clusterAdmissions.Items {
+		if admission.Spec.Mutating {
+			mutatingClusterAdmissions = append(mutatingClusterAdmissions, admission)
+		} else {
+			validatingClusterAdmissions = append(validatingClusterAdmissions, admission)
+		}
+	}
+
 	mutwebhook := &admissionregistrationv1.MutatingWebhookConfiguration{}
 	mutwebhook.SetGroupVersionKind(admissionregistrationv1.SchemeGroupVersion.WithKind("MutatingWebhookConfiguration"))
 	mutwebhook.Name = r.MutatingWebhookName
 	mutwebhook.Webhooks = make([]admissionregistrationv1.MutatingWebhook, 0, len(mutatingAdmissions))
 	for _, admission := range mutatingAdmissions {
 		mutwebhook.Webhooks = append(mutwebhook.Webhooks, admissionregistrationv1.MutatingWebhook{
-			Name: strings.Join([]string{admission.Name, admission.Namespace, "espejote.io"}, "."),
+			Name: strings.Join([]string{admission.Name, admission.Namespace, "namespaced.espejote.io"}, "."),
 
 			ClientConfig: admissionregistrationv1.WebhookClientConfig{
 				Service: &admissionregistrationv1.ServiceReference{
@@ -83,6 +99,31 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ admissionRequest)
 					"kubernetes.io/metadata.name": admission.GetNamespace(),
 				},
 			},
+
+			Rules:                   rulesWithScopeEnforced(admission.Spec.WebhookConfiguration.Rules, admissionregistrationv1.NamespacedScope),
+			FailurePolicy:           admission.Spec.WebhookConfiguration.FailurePolicy,
+			MatchPolicy:             admission.Spec.WebhookConfiguration.MatchPolicy,
+			ObjectSelector:          admission.Spec.WebhookConfiguration.ObjectSelector,
+			SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
+			AdmissionReviewVersions: []string{"v1"},
+			ReinvocationPolicy:      admission.Spec.WebhookConfiguration.ReinvocationPolicy,
+			MatchConditions:         admission.Spec.WebhookConfiguration.MatchConditions,
+		})
+	}
+	for _, admission := range mutatingClusterAdmissions {
+		mutwebhook.Webhooks = append(mutwebhook.Webhooks, admissionregistrationv1.MutatingWebhook{
+			Name: strings.Join([]string{admission.Name, "cluster.espejote.io"}, "."),
+
+			ClientConfig: admissionregistrationv1.WebhookClientConfig{
+				Service: &admissionregistrationv1.ServiceReference{
+					Name:      r.WebhookServiceName,
+					Namespace: r.ControllerNamespace,
+					Path:      ptr.To(path.Join("/dynamic-cluster", admission.Name)),
+					Port:      ptr.To(r.WebhookPort),
+				},
+			},
+
+			NamespaceSelector: admission.Spec.WebhookConfiguration.NamespaceSelector,
 
 			Rules:                   admission.Spec.WebhookConfiguration.Rules,
 			FailurePolicy:           admission.Spec.WebhookConfiguration.FailurePolicy,
@@ -104,7 +145,7 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ admissionRequest)
 	valwebhook.Webhooks = make([]admissionregistrationv1.ValidatingWebhook, 0, len(validatingAdmissions))
 	for _, admission := range validatingAdmissions {
 		valwebhook.Webhooks = append(valwebhook.Webhooks, admissionregistrationv1.ValidatingWebhook{
-			Name: strings.Join([]string{admission.Name, admission.Namespace, "espejote.io"}, "."),
+			Name: strings.Join([]string{admission.Name, admission.Namespace, "namespaced.espejote.io"}, "."),
 
 			ClientConfig: admissionregistrationv1.WebhookClientConfig{
 				Service: &admissionregistrationv1.ServiceReference{
@@ -119,6 +160,30 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ admissionRequest)
 					"kubernetes.io/metadata.name": admission.GetNamespace(),
 				},
 			},
+
+			Rules:                   rulesWithScopeEnforced(admission.Spec.WebhookConfiguration.Rules, admissionregistrationv1.NamespacedScope),
+			FailurePolicy:           admission.Spec.WebhookConfiguration.FailurePolicy,
+			MatchPolicy:             admission.Spec.WebhookConfiguration.MatchPolicy,
+			ObjectSelector:          admission.Spec.WebhookConfiguration.ObjectSelector,
+			SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
+			AdmissionReviewVersions: []string{"v1"},
+			MatchConditions:         admission.Spec.WebhookConfiguration.MatchConditions,
+		})
+	}
+	for _, admission := range validatingClusterAdmissions {
+		valwebhook.Webhooks = append(valwebhook.Webhooks, admissionregistrationv1.ValidatingWebhook{
+			Name: strings.Join([]string{admission.Name, "cluster.espejote.io"}, "."),
+
+			ClientConfig: admissionregistrationv1.WebhookClientConfig{
+				Service: &admissionregistrationv1.ServiceReference{
+					Name:      r.WebhookServiceName,
+					Namespace: r.ControllerNamespace,
+					Path:      ptr.To(path.Join("/dynamic-cluster", admission.Name)),
+					Port:      ptr.To(r.WebhookPort),
+				},
+			},
+
+			NamespaceSelector: admission.Spec.WebhookConfiguration.NamespaceSelector,
 
 			Rules:                   admission.Spec.WebhookConfiguration.Rules,
 			FailurePolicy:           admission.Spec.WebhookConfiguration.FailurePolicy,
@@ -142,6 +207,7 @@ func (r *AdmissionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return builder.TypedControllerManagedBy[admissionRequest](mgr).
 		Named("admission").
 		Watches(&espejotev1alpha1.Admission{}, handler.TypedEnqueueRequestsFromMapFunc(singleAdmissionRequest)).
+		Watches(&espejotev1alpha1.ClusterAdmission{}, handler.TypedEnqueueRequestsFromMapFunc(singleAdmissionRequest)).
 		Watches(&admissionregistrationv1.MutatingWebhookConfiguration{}, handler.TypedEnqueueRequestsFromMapFunc(filterRequestByName(r.MutatingWebhookName, singleAdmissionRequest))).
 		Watches(&admissionregistrationv1.ValidatingWebhookConfiguration{}, handler.TypedEnqueueRequestsFromMapFunc(filterRequestByName(r.ValidatingWebhookName, singleAdmissionRequest))).
 		Complete(r)
@@ -158,4 +224,14 @@ func filterRequestByName(name string, next func(context.Context, client.Object) 
 
 func singleAdmissionRequest(context.Context, client.Object) []admissionRequest {
 	return make([]admissionRequest, 1)
+}
+
+// rulesWithScopeEnforced returns a copy of the given rules with the given scope enforced.
+func rulesWithScopeEnforced(rules []admissionregistrationv1.RuleWithOperations, scope admissionregistrationv1.ScopeType) []admissionregistrationv1.RuleWithOperations {
+	newRules := make([]admissionregistrationv1.RuleWithOperations, len(rules))
+	for i, rule := range rules {
+		rule.DeepCopyInto(&newRules[i])
+		newRules[i].Scope = &scope
+	}
+	return newRules
 }

@@ -106,16 +106,31 @@ func (h *handler) handle(ctx context.Context, admissionKey types.NamespacedName,
 		return admission.Errored(http.StatusBadRequest, errors.New("missing namespace and name in context"))
 	}
 
-	var adm espejotev1alpha1.Admission
-	if err := h.Client.Get(ctx, admissionKey, &adm); err != nil {
-		if apierrors.IsNotFound(err) {
-			return admission.Allowed("Admission not found")
+	var admNamespace, admTemplate string
+	if admissionKey.Namespace != "" {
+		var adm espejotev1alpha1.Admission
+		if err := h.Client.Get(ctx, admissionKey, &adm); err != nil {
+			if apierrors.IsNotFound(err) {
+				return admission.Allowed("Admission not found")
+			}
+			return admission.Errored(http.StatusInternalServerError, err)
 		}
-		return admission.Errored(http.StatusInternalServerError, err)
+		admNamespace = adm.Namespace
+		admTemplate = adm.Spec.Template
+	} else {
+		var admCluster espejotev1alpha1.ClusterAdmission
+		if err := h.Client.Get(ctx, types.NamespacedName{Name: admissionKey.Name}, &admCluster); err != nil {
+			if apierrors.IsNotFound(err) {
+				return admission.Allowed("ClusterAdmission not found")
+			}
+			return admission.Errored(http.StatusInternalServerError, err)
+		}
+		admNamespace = ""
+		admTemplate = admCluster.Spec.Template
 	}
 
 	jvm := jsonnet.MakeVM()
-	jvm.Importer(controllers.FromClientImporter(h.Client, adm.GetNamespace(), h.JsonnetLibraryNamespace))
+	jvm.Importer(controllers.FromClientImporter(h.Client, admNamespace, h.JsonnetLibraryNamespace))
 	jvm.NativeFunction(applyPatchNativeFunction)
 
 	reqJson, err := json.Marshal(req)
@@ -124,7 +139,7 @@ func (h *handler) handle(ctx context.Context, admissionKey types.NamespacedName,
 	}
 	jvm.ExtCode("__internal_use_espejote_lib_admissionrequest", string(reqJson))
 
-	ret, err := jvm.EvaluateAnonymousSnippet("admission", adm.Spec.Template)
+	ret, err := jvm.EvaluateAnonymousSnippet("admission", admTemplate)
 	if err != nil {
 		return admission.Errored(http.StatusInternalServerError, fmt.Errorf("failed to evaluate jsonnet: %w", err))
 	}

@@ -28,7 +28,10 @@ type ImporterCacheEntry struct {
 type ManifestImporter struct {
 	client.Client
 
-	Namespace        string
+	// Namespace is the namespace for local imports.
+	// If Namespace is empty, local imports are not allowed.
+	Namespace string
+	// LibraryNamespace is the namespace for library imports.
 	LibraryNamespace string
 
 	Cache map[string]ImporterCacheEntry
@@ -99,6 +102,8 @@ func (im *ManifestImporter) loadFromCluster(fullImportPath string) (jsonnet.Cont
 	namespace := im.Namespace
 	if lib {
 		namespace = im.LibraryNamespace
+	} else if namespace == "" {
+		return jsonnet.Contents{}, "", fmt.Errorf("import %q not available: no local namespace configured. only library imports are allowed.", fullImportPath)
 	}
 	var library espejotev1alpha1.JsonnetLibrary
 	if err := im.Get(context.Background(), types.NamespacedName{Namespace: namespace, Name: manifestName}, &library); err != nil {

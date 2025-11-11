@@ -234,7 +234,9 @@ func runController(cmd *cobra.Command, _ []string) error {
 			return fmt.Errorf("unable to create ManagedResourceReconciler controller: %w", err)
 		}
 
-		mgr.GetWebhookServer().Register("/dynamic/{namespace}/{name}", admission.NewHandler(mgr.GetClient(), jsonnetLibraryNamespace))
+		h := admission.NewHandler(mgr.GetClient(), jsonnetLibraryNamespace)
+		mgr.GetWebhookServer().Register("/dynamic/{namespace}/{name}", h)
+		mgr.GetWebhookServer().Register("/dynamic-cluster/{name}", h)
 	}
 
 	//+kubebuilder:scaffold:builder
