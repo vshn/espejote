@@ -1,0 +1,58 @@
+---
+apiVersion: espejote.io/v1alpha1
+kind: ClusterAdmission
+metadata:
+  name: mutating-admission
+  annotations:
+    description: |
+      Adds the annotation `creator` for ClusterRole create requests.
+spec:
+  mutating: true
+  webhookConfiguration:
+    rules:
+      - apiGroups: ["rbac.authorization.k8s.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE"]
+        resources: ["clusterroles"]
+  template: |
+    local esp = import 'espejote.libsonnet';
+    local admission = esp.ALPHA.admission;
+
+    local user = admission.admissionRequest().userInfo.username;
+    local obj = admission.admissionRequest().object;
+
+    if std.get(obj.metadata, 'annotations') == null then
+      admission.patched('added user annotation', admission.assertPatch([
+        admission.jsonPatchOp('add', '/metadata/annotations', { 'creator': user }),
+      ]))
+    else
+      admission.patched('added user annotation', admission.assertPatch([
+        admission.jsonPatchOp('add', '/metadata/annotations/creator', user),
+      ]))
+---
+apiVersion: espejote.io/v1alpha1
+kind: ClusterAdmission
+metadata:
+  name: admission-sample
+  annotations:
+    description: |
+      Disallows changing the `creator` annotation on ClusterRoles.
+spec:
+  mutating: false
+  webhookConfiguration:
+    rules:
+      - apiGroups: ["rbac.authorization.k8s.io"]
+        apiVersions: ["*"]
+        operations: ["UPDATE"]
+        resources: ["clusterroles"]
+  template: |
+    local esp = import 'espejote.libsonnet';
+    local admission = esp.ALPHA.admission;
+
+    local oldAnnotations = std.get(admission.admissionRequest().oldObject.metadata, 'annotations', {});
+    local newAnnotations = std.get(admission.admissionRequest().object.metadata, 'annotations', {});
+
+    if std.get(oldAnnotations, 'creator') != std.get(newAnnotations, 'creator') then
+      admission.denied('creator annotation is immutable')
+    else
+      admission.allowed('ok')
