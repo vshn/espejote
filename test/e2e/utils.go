@@ -75,6 +75,13 @@ func installPrometheusOperatorCRDs(t *testing.T) {
 	requireRun(t, exec.Command("kubectl", "apply", "-f", url))
 }
 
+func uninstallPrometheusOperatorCRDs(t *testing.T) {
+	t.Helper()
+
+	url := fmt.Sprintf(prometheusOperatorURL, prometheusOperatorVersion)
+	requireRun(t, exec.Command("kubectl", "delete", "-f", url))
+}
+
 // installCertManager installs the cert manager bundle.
 func installCertManager(t *testing.T) {
 	t.Helper()
@@ -125,29 +132,16 @@ func runAndLogToT(t *testing.T, cmd *exec.Cmd) error {
 	return cmd.Run()
 }
 
-// isCertManagerCRDsInstalled checks if any Cert Manager CRDs are installed
-// by verifying the existence of key CRDs related to Cert Manager.
-func isCertManagerCRDsInstalled(t *testing.T) bool {
+func isAnyCRDInstalled(t *testing.T, crds ...string) bool {
 	t.Helper()
-
-	// List of common Cert Manager CRDs
-	certManagerCRDs := []string{
-		"certificates.cert-manager.io",
-		"issuers.cert-manager.io",
-		"clusterissuers.cert-manager.io",
-		"certificaterequests.cert-manager.io",
-		"orders.acme.cert-manager.io",
-		"challenges.acme.cert-manager.io",
-	}
 
 	// Execute the kubectl command to get all CRDs
 	cmd := exec.Command("kubectl", "get", "crds")
 	output := requireRun(t, cmd)
 
-	// Check if any of the Cert Manager CRDs are present
-	crdList := getNonEmptyLines(output)
-	for _, crd := range certManagerCRDs {
-		for _, line := range crdList {
+	// Check if any of the given CRDs are present in the output
+	for crd := range strings.Lines(output) {
+		for _, line := range crds {
 			if strings.Contains(line, crd) {
 				return true
 			}
@@ -155,6 +149,40 @@ func isCertManagerCRDsInstalled(t *testing.T) bool {
 	}
 
 	return false
+}
+
+// isCertManagerCRDsInstalled checks if any Cert Manager CRDs are installed
+// by verifying the existence of key CRDs related to Cert Manager.
+// If any of the CRDs are found, it returns true.
+func isCertManagerCRDsInstalled(t *testing.T) bool {
+	t.Helper()
+
+	return isAnyCRDInstalled(t,
+		"certificates.cert-manager.io",
+		"issuers.cert-manager.io",
+		"clusterissuers.cert-manager.io",
+		"certificaterequests.cert-manager.io",
+		"orders.acme.cert-manager.io",
+		"challenges.acme.cert-manager.io",
+	)
+}
+
+// isPrometheusOperatorCRDsInstalled checks if any Prometheus Operator CRDs are installed
+// by verifying the existence of key CRDs related to Prometheus Operator.
+// If any of the CRDs are found, it returns true.
+func isPrometheusOperatorCRDsInstalled(t *testing.T) bool {
+	t.Helper()
+
+	return isAnyCRDInstalled(t,
+		"podmonitors.monitoring.coreos.com",
+		"probes.monitoring.coreos.com",
+		"prometheusagents.monitoring.coreos.com",
+		"prometheuses.monitoring.coreos.com",
+		"prometheusrules.monitoring.coreos.com",
+		"scrapeconfigs.monitoring.coreos.com",
+		"servicemonitors.monitoring.coreos.com",
+		"thanosrulers.monitoring.coreos.com",
+	)
 }
 
 // requireLoadImageToKindClusterWithName loads a local docker image to the kind cluster
@@ -177,20 +205,6 @@ func requireLoadImageToKindClusterWithName(t *testing.T, name string) {
 	cmd := exec.Command(cs[0], append(cs[1:], kindOptions...)...)
 	cmd.Dir = getProjectDir(t)
 	requireRun(t, cmd)
-}
-
-// getNonEmptyLines converts given command output string into individual objects
-// according to line breakers, and ignores the empty elements in it.
-func getNonEmptyLines(output string) []string {
-	var res []string
-	elements := strings.Split(output, "\n")
-	for _, element := range elements {
-		if element != "" {
-			res = append(res, element)
-		}
-	}
-
-	return res
 }
 
 // getProjectDir will return the directory where the project is

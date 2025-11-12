@@ -26,7 +26,8 @@ type E2ESuite struct {
 	buildDir   string
 
 	// isCertManagerAlreadyInstalled will be set true when CertManager CRDs be found on the cluster
-	isCertManagerAlreadyInstalled bool
+	isCertManagerAlreadyInstalled        bool
+	isPrometheusOperatorAlreadyInstalled bool
 }
 
 func (suite *E2ESuite) SetupSuite() {
@@ -37,10 +38,13 @@ func (suite *E2ESuite) SetupSuite() {
 	suite.T().Logf("Setting up E2E suite... projectDir=%s, buildDir=%s", suite.projectDir, suite.buildDir)
 
 	suite.isCertManagerAlreadyInstalled = isCertManagerCRDsInstalled(suite.T())
+	suite.isPrometheusOperatorAlreadyInstalled = isPrometheusOperatorCRDsInstalled(suite.T())
 	if !skipCertManagerInstall && !suite.isCertManagerAlreadyInstalled {
 		installCertManager(suite.T())
 	}
-	installPrometheusOperatorCRDs(suite.T())
+	if !suite.isPrometheusOperatorAlreadyInstalled {
+		installPrometheusOperatorCRDs(suite.T())
+	}
 
 	suite.T().Log("Building and uploading manager image to kind cluster...")
 	buildAndUploadManagerImage(suite.T(), suite.projectDir, suite.buildDir)
@@ -55,6 +59,10 @@ func (suite *E2ESuite) TearDownSuite() {
 	if !skipCertManagerInstall && !suite.isCertManagerAlreadyInstalled {
 		suite.T().Log("Uninstalling CertManager...")
 		uninstallCertManager(suite.T())
+	}
+	if !suite.isPrometheusOperatorAlreadyInstalled {
+		suite.T().Log("Uninstalling Prometheus Operator CRDs...")
+		uninstallPrometheusOperatorCRDs(suite.T())
 	}
 
 	suite.T().Log("Removing build directory:", suite.buildDir)
