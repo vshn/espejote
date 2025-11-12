@@ -294,9 +294,9 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 		return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to unmarshal rendered template: %w", err), TemplateReturnError)
 	}
 
-	counts := map[applygroup.Kind]int{}
+	counts := map[string]int{}
 	if err := applier.Walk(func(a *applygroup.Applier) error {
-		counts[a.Kind]++
+		counts[a.Kind.String()]++
 
 		if a.Resource == nil {
 			return nil
