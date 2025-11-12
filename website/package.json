@@ -1,0 +1,37 @@
+{
+  "name": "dot-org-hugo-theme",
+  "version": "1.0.0",
+  "description": "",
+  "main": "none.js",
+  "scripts": {
+    "build": "npm run dev:build",
+    "build:production": "hugo --environment=production",
+    "start": "npm run dev:start",
+    "dev": "npm run dev:start",
+    "dev:start": "hugo serve --logLevel info --configDir=config --buildDrafts --buildFuture --ignoreCache --disableFastRender --gc  --printI18nWarnings --printMemoryUsage --printPathWarnings --printUnusedTemplates --templateMetrics --templateMetricsHints",
+    "dev:start:with-pagefind": "hugo --baseURL=/ && npm_config_yes=true npx pagefind --site 'public' --output-subdir '../static/pagefind' && npm run dev:start",
+    "dev:build": "hugo"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cncf/dot-org-hugo-theme"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/cncf/dot-org-hugo-theme/issues"
+  },
+  "homepage": "https://github.com/cncf/dot-org-hugo-theme#readme",
+  "dependencies": {
+    "hugo-extended": "^0.148.1",
+    "netlify-cli": "^22.3.0",
+    "sass-embedded": "^1.89.2"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.22",
+    "postcss": "^8.5.6",
+    "postcss-cli": "^11.0.1",
+    "prettier": "^3.6.2"
+  }
+}

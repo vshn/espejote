@@ -1,0 +1,75 @@
+en:
+  languageName: English
+  weight: 1
+  ### copyright (markdown can be used) ###
+  copyright: "Copyright &copy; {{< current_year >}} VSHN AG. All Rights Reserved. [Dot Org Theme](https://github.com/cncf/dot-org-hugo-theme) for Hugo by [CNCF](https://www.cncf.io)."
+  title: "espejote.io - An in-cluster templating controller."
+  params:
+    description: "espejote.io - An in-cluster templating controller."
+    ### accessibility ###
+    # accessibility:
+    #   skip_text: "Skip to content"
+    #   help_text: "Accessibility Statement"
+    #   help_url: "/example-page/"
+    ### calls to action ###
+    main_cta:
+      text: "Star on GitHub"
+      link: "https://github.com/vshn/espejote"
+    footer_cta:
+      text: "Star on GitHub"
+      link: "https://github.com/vshn/espejote"
+    github_edit: "Edit this page on GitHub"
+  ### example menu showing children ###
+  menu:
+    main:
+    - identifier: "documentation"
+      name: "Documentation"
+      url: "/docs"
+      weight: 1
+    - identifier: "documentation-installation"
+      name: "Install Espejote"
+      post: "Instructions to install Espejote in your Kubernetes or OpenShift cluster."
+      url: "https://github.com/vshn/espejote?tab=readme-ov-file#installation"
+      weight: 1
+      parent: "documentation"
+    - identifier: "documentation-api-crd-reference"
+      name: "API (CRD) Reference"
+      post: "Reference documentation for the Custom Resource Definitions (CRDs) used by Espejote."
+      url: "https://github.com/vshn/espejote/blob/main/docs/api.adoc"
+      weight: 3
+      parent: "documentation"
+    - identifier: "documentation-cli-reference"
+      name: "CLI Reference"
+      url: "https://github.com/vshn/espejote/blob/main/docs/cli/espejote.md"
+      weight: 5
+      post: "Describes the command line interface of Espejote."
+      parent: "documentation"
+    - identifier: "documentation-espejote-libsonnet-reference"
+      name: "espejote.libsonnet Reference"
+      url: "https://github.com/vshn/espejote/blob/main/docs/lib/README.md"
+      weight: 4
+      post: "Describes the command line interface of Espejote."
+      parent: "documentation"
+    - identifier: "examples"
+      name: "Examples"
+      weight: 1
+    - identifier: "examples-managedresource-node-disruption-policies"
+      name: "ManagedResource: Node Disruption Policies"
+      post: "Demonstrates how to use Espejote to manage Node Disruption Policies in a OpenShift cluster."
+      url: "https://github.com/vshn/espejote/blob/main/docs/annotated-examples/managedresource/node-disruption-policies.adoc"
+      weight: 2
+      parent: "examples"
+    - identifier: "examples-admission-cluster-autoscaler-patch"
+      name: "Admission: Cluster Autoscaler Patch"
+      post: "Demonstrates how to use Espejote to patch Cluster Autoscaler options in an OpenShift cluster."
+      url: "https://github.com/vshn/espejote/blob/main/docs/annotated-examples/admission/ocp-cluster-autoscaler-patch.adoc"
+      weight: 3
+      parent: "examples"
+    - identifier: "roadmap"
+      name: "Roadmap"
+      url: "/roadmap"
+      weight: 4
+    - identifier: "about"
+      name: "About"
+      url: "/about"
+      weight: 5
