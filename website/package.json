@@ -24,7 +24,7 @@
   },
   "homepage": "https://github.com/cncf/dot-org-hugo-theme#readme",
   "dependencies": {
-    "hugo-extended": "^0.148.1",
+    "hugo-extended": "^0.152.0",
     "netlify-cli": "^22.3.0",
     "sass-embedded": "^1.89.2"
   },
