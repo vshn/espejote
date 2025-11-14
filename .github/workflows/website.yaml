@@ -3,8 +3,8 @@ name: Build and Deploy Website
 on:
   # Runs on pushes targeting the default branch
   push:
-    # TODO: Change "website" to default branch before merging
-    branches: ["website"]
+    branches:
+    - main
 
   # Allows to run this workflow manually from the Actions tab
   workflow_dispatch:
