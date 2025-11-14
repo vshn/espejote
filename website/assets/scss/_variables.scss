@@ -1,0 +1,42 @@
+// Define CSS variables
+:root {
+  --condensed-font-family: "Oswald", "Impact", "Arial Black", sans-serif, -apple-system, BlinkMacSystemFont, Roboto,
+    Ubuntu;
+  --rounded-font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, Roboto,
+    Ubuntu, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+
+  --text-color: var(--black);
+  --black: #000000;
+  --white: #ffffff;
+  --link-color: var(--primary-600);
+  --link-color-hover: var(--primary-700);
+  --menu-link-color: var(--black);
+  --menu-link-color-hover: var(--gray-800);
+  --footer-link-color: var(--white);
+  --footer-link-color-hover: var(--primary-400);
+  --gutter: 25px;
+  --container-width: 1200px;
+  --content-width: 895px;
+
+  --primary-400: #87aade;
+  --primary-500: #62466b;
+  --primary-600: #45364b;
+  --primary-700: #bb4430;
+  --primary-800: #45462A;
+
+  --gray-200: #eaecf0;
+  --gray-300: #e5e5e5;
+  --gray-400: #e4e4e4;
+  --gray-600: #b1b1b1;
+  --gray-700: #767676;
+  --gray-800: #5f6367;
+
+  // Pagefind styles from https://pagefind.app/docs/ui-usage/#customising-the-styles
+  --pagefind-ui-text: var(--text-color) !important;
+  --pagefind-ui-font: var(--rounded-font-family) !important;
+}
+
+// Define SCSS variables.
+$desktop-width: calc(1200px + 25px + 25px);
+$min-desktop: 1000px;
+$mobile-max: 999px;

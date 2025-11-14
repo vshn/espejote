@@ -1,5 +1,5 @@
 <p align="center">
-  <img width=256px src="./assets/logo.png" alt="a goopher standing in front of a big mirror" /><br />
+  <img width=256px src="./assets/mascot.png" alt="a goopher standing in front of a big mirror" /><br />
   The Espejote tool ('big mirror' in Spanish) manages arbitrary resources in a Kubernetes cluster.<br />
   It allows a GitOps workflow while still being able to depend on in-cluster resources.<br /><br />
   <a href="https://kb.vshn.ch/oc4/references/architecture/espejote-in-cluster-templating-controller.html">Espejote: An in-cluster templating controller</a>

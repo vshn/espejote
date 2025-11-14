@@ -1,0 +1,40 @@
+######################## custom scripts & styles ####################
+
+# Add custom assets relative to /static or via https
+logo_on_white: "/img/logo-b.svg"
+logo_on_black: "/img/logo-w.svg"
+custom_js: []
+custom_css: []
+
+######################## custom config ####################
+
+### default social share image (can also be set per lang) ###
+images: ["/img/social-share.png"]
+
+github:
+  repo_url: "https://github.com/vshn/espejote/blob/main"
+  show_edit_link: true
+
+social_links:
+  devstats: ""
+  discord: ""
+  facebook: ""
+  flickr: ""
+  github: "https://github.com/vshn/espejote"
+  instagram: ""
+  landscape: ""
+  linkedin: "https://ch.linkedin.com/company/vshn-ag"
+  mastodon: ""
+  pinterest: ""
+  rss: ""
+  slack: ""
+  stackoverflow: ""
+  threads: ""
+  twitter: ""
+  x: ""
+  youtube: ""
+
+# Makes the header sticky on tall screens
+sticky_header: true
+# Enable search in header UI
+show_search: false
