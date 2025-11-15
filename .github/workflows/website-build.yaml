@@ -4,6 +4,9 @@ on:
   pull_request:
     branches:
       - main
+    paths:
+      - 'website/**'
+      - '.github/workflows/website-*.yaml'
 
 jobs:
   build:

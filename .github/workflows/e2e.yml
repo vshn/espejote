@@ -4,9 +4,15 @@ on:
   pull_request:
     branches:
       - main
+    paths-ignore:
+      - 'website/**'
+      - '.github/workflows/website-*.yaml'
   push:
     branches:
       - main
+    paths-ignore:
+      - 'website/**'
+      - '.github/workflows/website-*.yaml'
 
 jobs:
   test:
