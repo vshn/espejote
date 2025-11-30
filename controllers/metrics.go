@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/apimachinery/pkg/types"
@@ -74,8 +75,8 @@ func (c *CacheSizeCollector) Collect(ch chan<- prometheus.Metric) {
 	for mr, c := range c.shallowCloneCachesWithLock() {
 		for cn, cv := range c.contextCaches {
 			count, sizeBytes, err := cv.Size(ctx)
-			if ignoreErrCacheNotReady(err) != nil {
-				ch <- prometheus.NewInvalidMetric(cachedObjectsDesc, err)
+			if err != nil {
+				fmt.Printf("Metrics: Error getting context cache size %s/%s/%s: %s\n", mr.Name, mr.Namespace, cn, err.Error())
 				continue
 			}
 			ch <- prometheus.MustNewConstMetric(
@@ -99,8 +100,8 @@ func (c *CacheSizeCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 		for tn, tv := range c.triggerCaches {
 			count, sizeBytes, err := tv.Size(ctx)
-			if ignoreErrCacheNotReady(err) != nil {
-				ch <- prometheus.NewInvalidMetric(cachedObjectsDesc, err)
+			if err != nil {
+				fmt.Printf("Metrics: Error getting trigger cache size %s/%s/%s: %s\n", mr.Name, mr.Namespace, tn, err.Error())
 				continue
 			}
 			ch <- prometheus.MustNewConstMetric(
@@ -131,7 +132,7 @@ func (c *CacheSizeCollector) shallowCloneCachesWithLock() map[types.NamespacedNa
 
 	cloned := make(map[types.NamespacedName]*instanceCache)
 	for k, v := range c.ControllerManager.controllers {
-		if c := v.reconciler.getCache(); c != nil {
+		if c := v.reconciler.cache; c != nil {
 			cloned[k] = c
 		}
 	}
