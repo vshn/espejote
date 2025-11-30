@@ -1272,9 +1272,7 @@ local netpols = esp.context().netpols;
 				Name:      "test",
 				Namespace: testns,
 			},
-			Data: map[string]string{
-				"test": "test",
-			},
+			Data: map[string]string{},
 		}
 		require.NoError(t, c.Create(ctx, cmToPatch))
 
@@ -1301,7 +1299,7 @@ local netpols = esp.context().netpols;
 						namespace: "` + testns + `",
 					},
 					data: {
-						test: "updated",
+						trigger: std.manifestJson((import "espejote.libsonnet").triggerName() != null),
 					},
 				}`,
 			},
@@ -1312,21 +1310,21 @@ local netpols = esp.context().netpols;
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var cm corev1.ConfigMap
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
-			assert.Equal(t, "updated", cm.Data["test"])
+			assert.Equal(t, "true", cm.Data["trigger"])
 		}, 5*time.Second, 100*time.Millisecond)
 
 		t.Log("resetting the data. repeating until no conflict")
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var cm corev1.ConfigMap
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
-			cm.Data["test"] = "test"
+			cm.Data["trigger"] = "false"
 			require.NoError(t, c.Update(ctx, &cm))
 		}, 5*time.Second, time.Millisecond)
 		t.Log("waiting for the update")
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var cm corev1.ConfigMap
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
-			assert.Equal(t, "updated", cm.Data["test"])
+			assert.Equal(t, "true", cm.Data["trigger"])
 		}, 5*time.Second, 100*time.Millisecond)
 
 		t.Log("removing the trigger - test shutdown")
@@ -1340,7 +1338,7 @@ local netpols = esp.context().netpols;
 				namespace: "` + testns + `",
 			},
 			data: {
-				test: "updated",
+				trigger: std.manifestJson((import "espejote.libsonnet").triggerName() != null),
 				processed: "true",
 			},
 		}`
@@ -1357,7 +1355,7 @@ local netpols = esp.context().netpols;
 		{
 			var cm corev1.ConfigMap
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
-			cm.Data["test"] = "test"
+			cm.Data["trigger"] = "false"
 			require.NoError(t, c.Update(ctx, &cm))
 		}
 
@@ -1365,13 +1363,13 @@ local netpols = esp.context().netpols;
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var cm corev1.ConfigMap
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
-			assert.Equal(t, "test", cm.Data["test"])
+			assert.NotEqual(t, "true", cm.Data["trigger"])
 		}, 5*time.Second, 100*time.Millisecond)
 		require.Never(t, func() bool {
 			var cm corev1.ConfigMap
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
-			if cm.Data["test"] != "test" {
-				t.Logf("test data is %q, expected %q", cm.Data["test"], "test")
+			if cm.Data["trigger"] == "true" {
+				t.Logf("Expected no trigger updates, but trigger marker found")
 				return true
 			}
 			return false
