@@ -2,16 +2,10 @@ package controllers
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
-	"slices"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/DmitriyVTitov/size"
 	"github.com/google/go-jsonnet"
@@ -22,27 +16,18 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	toolscache "k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
 	"github.com/vshn/espejote/controllers/applygroup"
@@ -80,29 +65,19 @@ type ManagedResourceReconciler struct {
 	ControllerLifetimeCtx   context.Context
 	JsonnetLibraryNamespace string
 
-	controller controller.TypedController[Request]
 	clientset  *kubernetes.Clientset
 	restConfig *rest.Config
 	mapper     meta.RESTMapper
 
-	cacheMux sync.RWMutex
-	cache    *instanceCache
+	cache *instanceCache
 
-	// newCacheFunc is only used for testing
-	newCacheFunction cache.NewCacheFunc
+	configHash       string
+	configGeneration int64
 }
 
 type instanceCache struct {
 	triggerCaches map[string]*definitionCache
 	contextCaches map[string]*definitionCache
-
-	watchConfigHash string
-
-	stop func()
-}
-
-func (ci *instanceCache) Stop() {
-	ci.stop()
 }
 
 var errCacheNotFound = errors.New("cache not found")
@@ -125,35 +100,10 @@ func (ci *instanceCache) clientForContext(contextName string) (client.Reader, er
 	return dc.cache, nil
 }
 
-func (ci *instanceCache) AllCachesReady() (bool, error) {
-	ret := true
-	errs := make([]error, 0, len(ci.triggerCaches))
-	for _, dc := range ci.triggerCaches {
-		ready, err := dc.CacheReady()
-		ret = ret && ready
-		errs = append(errs, err)
-	}
-	for _, dc := range ci.contextCaches {
-		ready, err := dc.CacheReady()
-		ret = ret && ready
-		errs = append(errs, err)
-	}
-	return ret, multierr.Combine(errs...)
-}
-
 type definitionCache struct {
 	target *unstructured.Unstructured
 
 	cache cache.Cache
-
-	cacheReadyMux sync.Mutex
-	cacheReady    error
-}
-
-func (ci *definitionCache) CacheReady() (bool, error) {
-	ci.cacheReadyMux.Lock()
-	defer ci.cacheReadyMux.Unlock()
-	return ci.cacheReady == nil, ignoreErrCacheNotReady(ci.cacheReady)
 }
 
 // Size returns the number of objects and the size of the cache in bytes.
@@ -162,10 +112,6 @@ func (ci *definitionCache) CacheReady() (bool, error) {
 // The assumption is that the objects are the biggest part of the cache.
 // TODO: size.Of does a bunch of reflect and some allocations, we might want to simplify/optimize this. I never benchmarked it.
 func (ci *definitionCache) Size(ctx context.Context) (int, int, error) {
-	if _, err := ci.CacheReady(); err != nil {
-		return 0, 0, err
-	}
-
 	list, err := ci.target.DeepCopy().ToList()
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to build list from target object: %w", err)
@@ -175,13 +121,6 @@ func (ci *definitionCache) Size(ctx context.Context) (int, int, error) {
 	}
 
 	return len(list.Items), size.Of(list), nil
-}
-
-func ignoreErrCacheNotReady(err error) error {
-	if errors.Is(err, ErrCacheNotReady) {
-		return nil
-	}
-	return err
 }
 
 //+kubebuilder:rbac:groups=espejote.io,resources=managedresources,verbs=get;list;watch;create;update;patch;delete
@@ -203,6 +142,7 @@ const (
 	ApplyError                   EspejoteErrorType = "ApplyError"
 	TemplateReturnError          EspejoteErrorType = "TemplateReturnError"
 	ControllerInstantiationError EspejoteErrorType = "ControllerInstantiationError"
+	ControllerStartError         EspejoteErrorType = "ControllerStartError"
 )
 
 type EspejoteError struct {
@@ -262,22 +202,22 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 		return ctrl.Result{}, nil
 	}
 
-	ci, err := r.cacheFor(ctx, managedResource)
-	if err != nil {
-		return ctrl.Result{}, newEspejoteError(err, DependencyConfigurationError)
-	}
-	ready, err := ci.AllCachesReady()
-	if err != nil {
-		return ctrl.Result{}, newEspejoteError(err, DependencyConfigurationError)
-	}
-	if !ready {
-		return ctrl.Result{}, newEspejoteError(ErrCacheNotReady, WaitingForCacheSync)
+	if r.configGeneration != managedResource.Generation {
+		hsh, err := configHashForManagedResource(managedResource)
+		if err != nil {
+			return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to compute config hash: %w", err), DependencyConfigurationError)
+		}
+		if r.configHash != hsh {
+			l.Info("Configuration changed, skipping reconciliation until this instance is stopped", "oldHash", r.configHash, "newHash", hsh)
+			return ctrl.Result{}, nil
+		}
+		r.configGeneration = managedResource.Generation
 	}
 
 	rendered, err := (&Renderer{
 		Importer:            FromClientImporter(r.Client, managedResource.GetNamespace(), r.JsonnetLibraryNamespace),
-		TriggerClientGetter: ci.clientForTrigger,
-		ContextClientGetter: ci.clientForContext,
+		TriggerClientGetter: r.cache.clientForTrigger,
+		ContextClientGetter: r.cache.clientForContext,
 	}).Render(ctx, managedResource, req.TriggerInfo)
 	if err != nil {
 		return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to render template: %w", err), TemplateError)
@@ -384,134 +324,6 @@ func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, req 
 	return r.Status().Update(ctx, &managedResource)
 }
 
-var ErrCacheNotReady = errors.New("cache not ready")
-var ErrFailedSyncCache = errors.New("failed to sync cache")
-
-// cacheFor returns the cache for the given ManagedResource.
-// A new cache is created if it does not exist yet or if the configuration changed.
-// The cache is stopped if the configuration changed.
-func (r *ManagedResourceReconciler) cacheFor(ctx context.Context, mr espejotev1alpha1.ManagedResource) (*instanceCache, error) {
-	l := log.FromContext(ctx).WithName("ManagedResourceReconciler.cacheFor")
-
-	k := client.ObjectKeyFromObject(&mr)
-
-	hsh := md5.New()
-	henc := jsontext.NewEncoder(hsh)
-	if err := json.MarshalEncode(henc, mr.Spec.Triggers, json.Deterministic(true)); err != nil {
-		return nil, fmt.Errorf("failed to encode triggers: %w", err)
-	}
-	if err := json.MarshalEncode(henc, mr.Spec.Context, json.Deterministic(true)); err != nil {
-		return nil, fmt.Errorf("failed to encode contexts: %w", err)
-	}
-	if _, err := io.WriteString(hsh, mr.Spec.ServiceAccountRef.Name); err != nil {
-		return nil, fmt.Errorf("failed to hash service account name: %w", err)
-	}
-	configHash := fmt.Sprintf("%x", hsh.Sum(nil))
-
-	r.cacheMux.RLock()
-	if cache := r.cache; cache != nil && cache.watchConfigHash == configHash {
-		r.cacheMux.RUnlock()
-		return cache, nil
-	}
-	r.cacheMux.RUnlock()
-
-	r.cacheMux.Lock()
-	defer r.cacheMux.Unlock()
-
-	if cache := r.cache; cache != nil && cache.watchConfigHash == configHash {
-		return cache, nil
-	} else if cache != nil {
-		l.Info("cache config changed, stopping old cache", "old", cache.watchConfigHash, "new", configHash)
-		cache.Stop()
-	}
-
-	rc, err := r.restConfigForManagedResource(ctx, mr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get rest config for managed resource: %w", err)
-	}
-
-	if found, e := findFirstDuplicate(mr.Spec.Triggers, func(tr espejotev1alpha1.ManagedResourceTrigger) string { return tr.Name }); found {
-		return nil, fmt.Errorf("duplicate trigger definition %q", e)
-	}
-	if found, e := findFirstDuplicate(mr.Spec.Context, func(tr espejotev1alpha1.ManagedResourceContext) string { return tr.Name }); found {
-		return nil, fmt.Errorf("duplicate context definition %q", e)
-	}
-
-	cctx, cancel := context.WithCancel(r.ControllerLifetimeCtx)
-	ci := &instanceCache{
-		triggerCaches:   make(map[string]*definitionCache),
-		contextCaches:   make(map[string]*definitionCache),
-		stop:            cancel,
-		watchConfigHash: configHash,
-	}
-	for _, con := range mr.Spec.Context {
-		if con.Resource.APIVersion == "" {
-			return nil, fmt.Errorf("context %q has no resource", con.Name)
-		}
-
-		dc, err := r.newCacheForResourceAndRESTClient(cctx, con.Resource, rc, mr.GetNamespace())
-		if err != nil {
-			cancel()
-			return nil, fmt.Errorf("failed to create cache for resource %q: %w", con.Name, err)
-		}
-
-		ci.contextCaches[con.Name] = dc
-
-		// We only allow querying objects with existing informers
-		if _, err := dc.cache.GetInformer(cctx, dc.target); err != nil {
-			cancel()
-			return nil, err
-		}
-	}
-
-	for _, trigger := range mr.Spec.Triggers {
-		if trigger.Interval.Duration != 0 {
-			if err := r.setupIntervalTrigger(cctx, trigger.Interval.Duration, k, trigger.Name); err != nil {
-				cancel()
-				return nil, fmt.Errorf("failed to setup interval trigger %q: %w", trigger.Name, err)
-			}
-			continue
-		}
-
-		var defCache *definitionCache
-		if trigger.WatchContextResource.Name != "" {
-			dc, ok := ci.contextCaches[trigger.WatchContextResource.Name]
-			if !ok {
-				cancel()
-				return nil, fmt.Errorf("context %q not found for trigger %q", trigger.WatchContextResource.Name, trigger.Name)
-			}
-			defCache = dc
-		} else {
-			if trigger.WatchResource.APIVersion == "" {
-				return nil, fmt.Errorf("trigger %q has no watch resource or interval", trigger.Name)
-			}
-
-			dc, err := r.newCacheForResourceAndRESTClient(cctx, trigger.WatchResource, rc, mr.GetNamespace())
-			if err != nil {
-				cancel()
-				return nil, fmt.Errorf("failed to create cache for trigger %q: %w", trigger.Name, err)
-			}
-			defCache = dc
-		}
-
-		ci.triggerCaches[trigger.Name] = defCache
-
-		if err := r.controller.Watch(source.TypedKind(defCache.cache, client.Object(defCache.target), handler.TypedEnqueueRequestsFromMapFunc(staticMapFunc(client.ObjectKeyFromObject(&mr), trigger.Name)))); err != nil {
-			cancel()
-			return nil, err
-		}
-	}
-
-	r.cache = ci
-	return ci, nil
-}
-
-func (r *ManagedResourceReconciler) getCache() *instanceCache {
-	r.cacheMux.RLock()
-	defer r.cacheMux.RUnlock()
-	return r.cache
-}
-
 // Render renders the given ManagedResource.
 type Renderer struct {
 	Importer jsonnet.Importer
@@ -589,11 +401,6 @@ func (r *Renderer) renderTriggers(ctx context.Context, getReader func(string) (c
 			} else {
 				return nil, fmt.Errorf("failed to get trigger object: %w", err)
 			}
-		} else if errors.Is(err, errCacheNotFound) {
-			// This can happen if the triggers are reconfigured while events are still in the queue.
-			// We might want to restart the whole queue in this case.
-			// This wasn't as easy before parallelizing the reconciler, but now we can just recreate the dynamic controller.
-			log.FromContext(ctx).WithValues("trigger", ti.WatchResource).Info("cache for trigger not found, cannot get object")
 		} else {
 			return nil, fmt.Errorf("failed to get reader for trigger: %w", err)
 		}
@@ -694,220 +501,6 @@ func (r *ManagedResourceReconciler) restConfigForManagedResource(ctx context.Con
 		TLSClientConfig: *r.restConfig.TLSClientConfig.DeepCopy(),
 	}
 	return &config, nil
-}
-
-// newCacheForResourceAndRESTClient creates a new cache for the given ClusterResource and REST client.
-// The cache starts syncing in the background and is ready when CacheReady() is true on the returned cache.
-func (r *ManagedResourceReconciler) newCacheForResourceAndRESTClient(ctx context.Context, cr espejotev1alpha1.ClusterResource, rc *rest.Config, defaultNamespace string) (*definitionCache, error) {
-	watchTarget := &unstructured.Unstructured{}
-	watchTarget.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   cr.GetGroup(),
-		Version: cr.GetVersion(),
-		Kind:    cr.GetKind(),
-	})
-
-	isNamespaced, err := apiutil.IsObjectNamespaced(watchTarget, r.Scheme, r.mapper)
-	if err != nil {
-		return nil, fmt.Errorf("failed to determine if watch target %q is namespaced: %w", cr, err)
-	}
-
-	var sel []fields.Selector
-	if name := cr.GetName(); name != "" {
-		sel = append(sel, fields.OneTermEqualSelector("metadata.name", name))
-	}
-	if ns := ptr.Deref(cr.GetNamespace(), defaultNamespace); isNamespaced && ns != "" {
-		sel = append(sel, fields.OneTermEqualSelector("metadata.namespace", ns))
-	}
-
-	lblSel := labels.Everything()
-	if cr.GetLabelSelector() != nil {
-		s, err := metav1.LabelSelectorAsSelector(cr.GetLabelSelector())
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse label selector for trigger %q: %w", cr, err)
-		}
-		lblSel = s
-	}
-
-	filterInf := toolscache.NewSharedIndexInformer
-	if len(cr.GetMatchNames()) > 0 || len(cr.GetIgnoreNames()) > 0 {
-		filterInf = wrapNewInformerWithFilter(func(o client.Object) bool {
-			return (len(cr.GetMatchNames()) == 0 || slices.Contains(cr.GetMatchNames(), o.GetName())) &&
-				!slices.Contains(cr.GetIgnoreNames(), o.GetName())
-		})
-	}
-
-	var transformFunc toolscache.TransformFunc
-	if cr.GetStripManagedFields() {
-		transformFunc = cache.TransformStripManagedFields()
-	}
-
-	newCacheFunc := r.newCacheFunction
-	if newCacheFunc == nil {
-		newCacheFunc = cache.New
-	}
-
-	c, err := newCacheFunc(rc, cache.Options{
-		Scheme: r.Scheme,
-		Mapper: r.mapper,
-		// We want to explicitly fail if the informer is missing, otherwise we might create some unconfigured caches without any warning on programming errors.
-		ReaderFailOnMissingInformer: true,
-		DefaultFieldSelector:        fields.AndSelectors(sel...),
-		DefaultLabelSelector:        lblSel,
-		// We don't want to deep copy the objects, as we don't modify them
-		// This is mostly to make metric collection more efficient
-		DefaultUnsafeDisableDeepCopy: ptr.To(true),
-
-		DefaultTransform: transformFunc,
-
-		NewInformer: filterInf,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create cache for trigger %q: %w", cr, err)
-	}
-
-	dc := &definitionCache{
-		target:     watchTarget,
-		cache:      c,
-		cacheReady: ErrCacheNotReady,
-	}
-
-	go c.Start(ctx)
-	go func() {
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-
-		success := c.WaitForCacheSync(ctx)
-		dc.cacheReadyMux.Lock()
-		defer dc.cacheReadyMux.Unlock()
-
-		if success {
-			dc.cacheReady = nil
-		} else {
-			dc.cacheReady = fmt.Errorf("failed to sync cache for %q: %w", watchTarget.GroupVersionKind(), ErrFailedSyncCache)
-		}
-	}()
-
-	return dc, nil
-}
-
-// setupIntervalTrigger sets up a trigger that fires every interval.
-// The trigger is enqueued with the ManagedResource's key and the trigger index.
-// The trigger is shut down when the context is canceled.
-func (r *ManagedResourceReconciler) setupIntervalTrigger(lifetimeCtx context.Context, interval time.Duration, mrKey types.NamespacedName, triggerName string) error {
-	return r.controller.Watch(source.TypedFunc[Request](func(ctx context.Context, queue workqueue.TypedRateLimitingInterface[Request]) error {
-		tick := time.NewTicker(interval)
-		go func() {
-			defer tick.Stop()
-
-			// merge cancellation signals from interval lifetime context and context given by the controller
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
-			context.AfterFunc(lifetimeCtx, cancel)
-
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-tick.C:
-					queue.Add(Request{
-						TriggerInfo: TriggerInfo{
-							TriggerName: triggerName,
-						},
-					})
-				}
-			}
-		}()
-		return nil
-	}))
-}
-
-func staticMapFunc(r types.NamespacedName, triggerName string) func(context.Context, client.Object) []Request {
-	return func(_ context.Context, o client.Object) []Request {
-		gvk := o.GetObjectKind().GroupVersionKind()
-		return []Request{
-			{
-				TriggerInfo: TriggerInfo{
-					TriggerName: triggerName,
-
-					WatchResource: WatchResource{
-						APIVersion: gvk.Version,
-						Group:      gvk.Group,
-						Kind:       gvk.Kind,
-						Name:       o.GetName(),
-						Namespace:  o.GetNamespace(),
-					},
-				},
-			},
-		}
-	}
-}
-
-// wrapNewInformerWithFilter wraps the NewSharedIndexInformer function to filter the informer's results.
-// The filter function is called for each object that can be cast to runtime.Object returned by the informer.
-// If the function returns false, the object is filtered out.
-// If the object can't be cast to client.Object, it is not filtered out.
-// Warning: I'm not sure if this is a good idea or if it can lead to inconsistencies.
-// You must NOT filter the object by fields that can be modified, as watch can't properly update the Type field (Add/Modified/Deleted) to reflect items beginning to pass the filter when they previously didn't.
-func wrapNewInformerWithFilter(f func(o client.Object) (keep bool)) func(toolscache.ListerWatcher, runtime.Object, time.Duration, toolscache.Indexers) toolscache.SharedIndexInformer {
-	return func(lw toolscache.ListerWatcher, o runtime.Object, d time.Duration, i toolscache.Indexers) toolscache.SharedIndexInformer {
-		lwc := toolscache.ToListerWatcherWithContext(lw)
-		flw := &toolscache.ListWatch{
-			WatchFuncWithContext: func(ctx context.Context, options metav1.ListOptions) (watch.Interface, error) {
-				i, err := lwc.WatchWithContext(ctx, options)
-				if err != nil {
-					return nil, err
-				}
-				return watch.Filter(i, func(in watch.Event) (out watch.Event, keep bool) {
-					obj, ok := in.Object.(client.Object)
-					if !ok {
-						return in, true
-					}
-					return in, f(obj)
-				}), nil
-			},
-			ListWithContextFunc: func(ctx context.Context, options metav1.ListOptions) (runtime.Object, error) {
-				list, err := lwc.ListWithContext(ctx, options)
-				if err != nil {
-					return nil, err
-				}
-
-				items, err := meta.ExtractListWithAlloc(list)
-				if err != nil {
-					return list, fmt.Errorf("unable to understand list result %#v (%v)", list, err)
-				}
-
-				filtered := slices.DeleteFunc(items, func(ro runtime.Object) bool {
-					obj, ok := ro.(client.Object)
-					if !ok {
-						return false
-					}
-					return !f(obj)
-				})
-
-				if err := meta.SetList(list, filtered); err != nil {
-					return list, fmt.Errorf("unable to set filtered list result %#v (%v)", list, err)
-				}
-
-				return list, nil
-			},
-		}
-
-		return toolscache.NewSharedIndexInformer(flw, o, d, i)
-	}
-}
-
-// findFirstDuplicate finds the first duplicate element in the given slice.
-// Returns true if a duplicate was found and the duplicate element.
-func findFirstDuplicate[T any, E comparable](s []T, f func(T) E) (found bool, duplicate E) {
-	cns := sets.New[E]()
-	for _, el := range s {
-		v := f(el)
-		if cns.Has(v) {
-			return true, v
-		}
-		cns.Insert(v)
-	}
-	return false, duplicate
 }
 
 func jsonValueToJsonnetNode(v any) (ast.Node, error) {
