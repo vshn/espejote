@@ -1,6 +1,6 @@
 module github.com/vshn/espejote
 
-go 1.25
+go 1.25.0
 
 toolchain go1.25.5
 
@@ -19,7 +19,7 @@ require (
 	go.uber.org/multierr v1.11.0
 	gomodules.xyz/jsonpatch/v2 v2.5.0
 	k8s.io/api v0.34.2
-	k8s.io/apimachinery v0.34.2
+	k8s.io/apimachinery v0.35.0-beta.0
 	k8s.io/client-go v0.34.2
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
 	sigs.k8s.io/controller-runtime v0.22.4
@@ -34,7 +34,6 @@ require (
 	github.com/BurntSushi/toml v1.4.0 // indirect
 	github.com/Masterminds/goutils v1.1.1 // indirect
 	github.com/Masterminds/semver v1.5.0 // indirect
-	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/Masterminds/sprig v2.22.0+incompatible // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -97,7 +96,6 @@ require (
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/monochromegane/go-gitignore v0.0.0-20200626010858-205db1a8cc00 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/onsi/ginkgo/v2 v2.25.1 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
@@ -149,7 +147,7 @@ require (
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250910181357-589584f1c912 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.33.0 // indirect
-	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250211091558-894df3a7e664 // indirect
+	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20251126220622-4b46eb04d57f // indirect
 	sigs.k8s.io/controller-tools v0.19.0 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/kind v0.30.0 // indirect
