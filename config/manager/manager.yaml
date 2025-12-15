@@ -9,6 +9,7 @@ metadata:
     app.kubernetes.io/created-by: espejote
     app.kubernetes.io/part-of: espejote
     app.kubernetes.io/managed-by: kustomize
+    pod-security.kubernetes.io/enforce: restricted
   name: system
 ---
 apiVersion: apps/v1
