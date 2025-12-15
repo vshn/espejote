@@ -21,6 +21,10 @@
         "/golang.org/x/exp/",
         "/sigs.k8s.io/controller-runtime/tools/setup-envtest/"
       ]
+    },
+    {
+      "matchManagers": ["npm"],
+      "groupName": "landing page nodejs dependencies"
     }
   ]
 }
