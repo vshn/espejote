@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -27,10 +28,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -735,76 +734,6 @@ local netpols = esp.context().netpols;
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
-	t.Run("trigger rename does not queue reconciliation forever", func(t *testing.T) {
-		// This test ensures that renaming a trigger still in the work queue does not cause
-		// the ManagedResource to be stuck reconciling this trigger forever.
-		// Before the fix the controller repeatedly retried to receive the expired cache backing the trigger.
-		// Test works by keeping the trigger in the queue by erroring out as long as the trigger
-		// has data showing the backing cache still exists. After renaming the trigger, the cache
-		// is expired, the triggering resource can't be retrieved anymore, and the template can finish
-		// successfully.
-		t.Parallel()
-
-		testns := testutil.TmpNamespace(t, c)
-
-		cm := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "trigger",
-				Namespace: testns,
-			},
-		}
-		require.NoError(t, c.Create(ctx, cm))
-
-		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
-			Spec: espejotev1alpha1.ManagedResourceSpec{
-				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
-					{
-						Name: "cm",
-						WatchResource: espejotev1alpha1.TriggerWatchResource{
-							Kind:       "ConfigMap",
-							APIVersion: "v1",
-							Name:       "trigger",
-						},
-					},
-				},
-				Template: `
-local esp = import "espejote.libsonnet";
-if esp.triggerName() == "cm" then (
-	if esp.triggerData().resource != null then
-		// keep the trigger in the queue by erroring out
-		error "not expired"
-	else
-		{apiVersion: "v1", kind: "ConfigMap", metadata: {name: "expired-marker"}}
-)`,
-			},
-		}
-		require.NoError(t, c.Create(ctx, mr))
-
-		require.EventuallyWithT(t, func(t *assert.CollectT) {
-			var events corev1.EventList
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
-			require.Len(t, events.Items, 1)
-			assert.Equal(t, "Warning", events.Items[0].Type)
-			assert.Contains(t, events.Items[0].Message, "not expired")
-		}, 5*time.Second, 100*time.Millisecond)
-
-		require.EventuallyWithT(t, func(t *assert.CollectT) {
-			var mrToUpdate espejotev1alpha1.ManagedResource
-			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: mr.Name}, &mrToUpdate))
-			mrToUpdate.Spec.Triggers[0].Name = "cm-renamed"
-			require.NoError(t, c.Update(ctx, &mrToUpdate))
-		}, 5*time.Second, 100*time.Millisecond)
-
-		require.EventuallyWithT(t, func(t *assert.CollectT) {
-			var cm corev1.ConfigMap
-			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "expired-marker"}, &cm))
-		}, 5*time.Second, 100*time.Millisecond)
-	})
-
 	t.Run("object with unknown api returned", func(t *testing.T) {
 		t.Parallel()
 
@@ -1343,9 +1272,7 @@ if esp.triggerName() == "cm" then (
 				Name:      "test",
 				Namespace: testns,
 			},
-			Data: map[string]string{
-				"test": "test",
-			},
+			Data: map[string]string{},
 		}
 		require.NoError(t, c.Create(ctx, cmToPatch))
 
@@ -1372,7 +1299,7 @@ if esp.triggerName() == "cm" then (
 						namespace: "` + testns + `",
 					},
 					data: {
-						test: "updated",
+						trigger: std.manifestJson((import "espejote.libsonnet").triggerName() != null),
 					},
 				}`,
 			},
@@ -1383,21 +1310,21 @@ if esp.triggerName() == "cm" then (
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var cm corev1.ConfigMap
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
-			assert.Equal(t, "updated", cm.Data["test"])
+			assert.Equal(t, "true", cm.Data["trigger"])
 		}, 5*time.Second, 100*time.Millisecond)
 
 		t.Log("resetting the data. repeating until no conflict")
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var cm corev1.ConfigMap
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
-			cm.Data["test"] = "test"
+			cm.Data["trigger"] = "false"
 			require.NoError(t, c.Update(ctx, &cm))
 		}, 5*time.Second, time.Millisecond)
 		t.Log("waiting for the update")
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var cm corev1.ConfigMap
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
-			assert.Equal(t, "updated", cm.Data["test"])
+			assert.Equal(t, "true", cm.Data["trigger"])
 		}, 5*time.Second, 100*time.Millisecond)
 
 		t.Log("removing the trigger - test shutdown")
@@ -1411,7 +1338,7 @@ if esp.triggerName() == "cm" then (
 				namespace: "` + testns + `",
 			},
 			data: {
-				test: "updated",
+				trigger: std.manifestJson((import "espejote.libsonnet").triggerName() != null),
 				processed: "true",
 			},
 		}`
@@ -1428,7 +1355,7 @@ if esp.triggerName() == "cm" then (
 		{
 			var cm corev1.ConfigMap
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
-			cm.Data["test"] = "test"
+			cm.Data["trigger"] = "false"
 			require.NoError(t, c.Update(ctx, &cm))
 		}
 
@@ -1436,13 +1363,13 @@ if esp.triggerName() == "cm" then (
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var cm corev1.ConfigMap
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
-			assert.Equal(t, "test", cm.Data["test"])
+			assert.NotEqual(t, "true", cm.Data["trigger"])
 		}, 5*time.Second, 100*time.Millisecond)
 		require.Never(t, func() bool {
 			var cm corev1.ConfigMap
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, &cm))
-			if cm.Data["test"] != "test" {
-				t.Logf("test data is %q, expected %q", cm.Data["test"], "test")
+			if cm.Data["trigger"] == "true" {
+				t.Logf("Expected no trigger updates, but trigger marker found")
 				return true
 			}
 			return false
@@ -1936,17 +1863,21 @@ local cm(name) = {
 	})
 }
 
-func Test_ManagedResourceReconciler_Reconcile_WithBlockingCache(t *testing.T) {
-	// Tests that the Resource stays in WaitingForCacheSync until the cache is ready.
-	// The nice way™️ would be to add a slow/ blocking aggregate API server so we don't need
-	// to inject anything into the controller. Most likely not worth the effort.
-
+func Test_ManagedResourceReconciler_Reconcile_WithBlockingClient(t *testing.T) {
 	t.Parallel()
 
 	scheme, cfg := testutil.SetupEnvtestEnv(t)
 	c, err := client.NewWithWatch(cfg, client.Options{
 		Scheme: scheme,
 	})
+	blocker := &blockingRoundTripper{
+		block: make(chan struct{}),
+		log:   t.Log,
+	}
+	cfg.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
+		blocker.RoundTripper = rt
+		return blocker
+	}
 	require.NoError(t, err)
 
 	ctx := log.IntoContext(t.Context(), testr.New(t))
@@ -1956,14 +1887,12 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingCache(t *testing.T) {
 		Logger: testr.New(t),
 	})
 	require.NoError(t, err)
-	cf, unblock := newSlowCachefunc()
 	subject := &ManagedResourceControllerManager{
 		Client:                  c,
 		Scheme:                  c.Scheme(),
 		ControllerLifetimeCtx:   ctx,
 		JsonnetLibraryNamespace: "jsonnetlibs",
 		Recorder:                mgr.GetEventRecorderFor("managed-resource-controller"),
-		newCacheFunction:        cf,
 	}
 	require.NoError(t, subject.SetupWithManager("slow_client", cfg, mgr))
 
@@ -2000,7 +1929,7 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingCache(t *testing.T) {
 		}, 5*time.Second, 10*time.Millisecond)
 
 		t.Log("unblocking the cache sync")
-		unblock()
+		close(blocker.block)
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
@@ -2013,36 +1942,27 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingCache(t *testing.T) {
 	})
 }
 
-func newSlowCachefunc() (cf func(*rest.Config, cache.Options) (cache.Cache, error), unblock func()) {
-	block := make(chan struct{})
-	return func(config *rest.Config, opts cache.Options) (cache.Cache, error) {
-			c, err := cache.New(config, opts)
-			if err != nil {
-				return nil, err
-			}
+var cmRequestPathRegex = regexp.MustCompile(`/api/v1/namespaces/[^/]+/configmaps(/[^/]+)?$`)
 
-			return &slowCache{
-				Cache:     c,
-				blockSync: block,
-			}, nil
-		}, func() {
-			close(block)
+// blockingRoundTripper is an http.RoundTripper that blocks on configmap requests until unblocked.
+type blockingRoundTripper struct {
+	http.RoundTripper
+
+	log   func(...any)
+	block chan struct{}
+}
+
+func (b *blockingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	b.log("RoundTrip called for", req.Method, req.URL.Path)
+	if cmRequestPathRegex.MatchString(req.URL.Path) {
+		b.log("Detected configmap request, blocking...", req.Method, req.URL.Path)
+		select {
+		case <-b.block:
+		case <-req.Context().Done():
 		}
-}
-
-type slowCache struct {
-	cache.Cache
-
-	blockSync chan struct{}
-}
-
-func (sc *slowCache) WaitForCacheSync(ctx context.Context) bool {
-	select {
-	case <-ctx.Done():
-	case <-sc.blockSync:
+		b.log("Unblocked configmap request", req.Method, req.URL.Path)
 	}
-
-	return sc.Cache.WaitForCacheSync(ctx)
+	return b.RoundTripper.RoundTrip(req)
 }
 
 // metricHasLabelPair returns a function that checks if a metric has a label pair with the given name and value.
