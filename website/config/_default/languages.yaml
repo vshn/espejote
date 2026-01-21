@@ -59,11 +59,17 @@ en:
       url: "https://github.com/vshn/espejote/blob/main/docs/annotated-examples/managedresource/node-disruption-policies.adoc"
       weight: 2
       parent: "examples"
+    - identifier: "examples-managedresource-sync-secrets"
+      name: "ManagedResource: Sync Secrets"
+      post: "Demonstrates how to use Espejote to sync secrets between Kubernetes namespaces."
+      url: "https://github.com/vshn/espejote/blob/main/docs/annotated-examples/managedresource/sync-secrets.adoc"
+      weight: 3
+      parent: "examples"
     - identifier: "examples-admission-cluster-autoscaler-patch"
       name: "Admission: Cluster Autoscaler Patch"
       post: "Demonstrates how to use Espejote to patch Cluster Autoscaler options in an OpenShift cluster."
       url: "https://github.com/vshn/espejote/blob/main/docs/annotated-examples/admission/ocp-cluster-autoscaler-patch.adoc"
-      weight: 3
+      weight: 4
       parent: "examples"
     - identifier: "roadmap"
       name: "Roadmap"

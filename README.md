@@ -54,6 +54,7 @@ API (CRD) documentation is available [here](./docs/api.adoc).
 
 Annotated examples are available:
 - [Admission: OpenShift 4 Cluster Autoscaler Patch](./docs/annotated-examples/admission/ocp-cluster-autoscaler-patch.adoc)
+- [ManagedResource: Sync secrets between Kubernetes namespaces](./docs/annotated-examples/managedresource/sync-secrets.adoc)
 - [ManagedResource: OpenShift 4 Node Disruption Policies](./docs/annotated-examples/managedresource/node-disruption-policies.adoc)
 - We're working on more examples, stay tuned!
 
