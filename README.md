@@ -54,8 +54,8 @@ API (CRD) documentation is available [here](./docs/api.adoc).
 
 Annotated examples are available:
 - [Admission: OpenShift 4 Cluster Autoscaler Patch](./docs/annotated-examples/admission/ocp-cluster-autoscaler-patch.adoc)
+- [ManagedResource: Sync secrets between Kubernetes namespaces](./docs/annotated-examples/managedresource/sync-secrets.adoc)
 - [ManagedResource: OpenShift 4 Node Disruption Policies](./docs/annotated-examples/managedresource/node-disruption-policies.adoc)
-- [ManagedResource: Sync secret data values between Kubernetes namespaces](./docs/annotated-examples/managedresource/sync-secret-values.adoc)
 - We're working on more examples, stay tuned!
 
 The original idea and design document is available [here](https://kb.vshn.ch/oc4/references/architecture/espejote-in-cluster-templating-controller.html).
