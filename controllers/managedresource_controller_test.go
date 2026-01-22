@@ -71,7 +71,7 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		Scheme:                  c.Scheme(),
 		ControllerLifetimeCtx:   ctx,
 		JsonnetLibraryNamespace: "jsonnetlibs",
-		Recorder:                mgr.GetEventRecorderFor("managed-resource-controller"),
+		Recorder:                mgr.GetEventRecorder("managed-resource-controller"),
 	}
 	require.NoError(t, subject.SetupWithManager("managedresource", cfg, mgr))
 	metrics.Registry.MustRegister(&CacheSizeCollector{ControllerManager: subject})
@@ -568,7 +568,8 @@ local netpols = esp.context().netpols;
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var events corev1.EventList
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorWithResourceVersion(eventSelectorForManagedResource(mr.Name), mr.ResourceVersion)))
 			require.Len(t, events.Items, 1)
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, TemplateError)
@@ -610,7 +611,8 @@ local netpols = esp.context().netpols;
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var events corev1.EventList
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorWithResourceVersion(eventSelectorForManagedResource(mr.Name), mr.ResourceVersion)))
 			require.Len(t, events.Items, 1)
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, TemplateError)
@@ -645,7 +647,8 @@ local netpols = esp.context().netpols;
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var events corev1.EventList
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorWithResourceVersion(eventSelectorForManagedResource(mr.Name), mr.ResourceVersion)))
 			require.Len(t, events.Items, 1)
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, DependencyConfigurationError)
@@ -674,7 +677,8 @@ local netpols = esp.context().netpols;
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var events corev1.EventList
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorWithResourceVersion(eventSelectorForManagedResource(mr.Name), mr.ResourceVersion)))
 			require.Len(t, events.Items, 1)
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, DependencyConfigurationError)
@@ -702,7 +706,8 @@ local netpols = esp.context().netpols;
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var events corev1.EventList
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorWithResourceVersion(eventSelectorForManagedResource(mr.Name), mr.ResourceVersion)))
 			require.Len(t, events.Items, 1)
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, ServiceAccountError)
@@ -727,7 +732,8 @@ local netpols = esp.context().netpols;
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var events corev1.EventList
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorWithResourceVersion(eventSelectorForManagedResource(mr.Name), mr.ResourceVersion)))
 			require.Len(t, events.Items, 1)
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, TemplateReturnError)
@@ -752,7 +758,8 @@ local netpols = esp.context().netpols;
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var events corev1.EventList
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorWithResourceVersion(eventSelectorForManagedResource(mr.Name), mr.ResourceVersion)))
 			require.Len(t, events.Items, 1)
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, ApplyError)
@@ -786,7 +793,8 @@ local netpols = esp.context().netpols;
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var events corev1.EventList
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorWithResourceVersion(eventSelectorForManagedResource(mr.Name), mr.ResourceVersion)))
 			require.Len(t, events.Items, 1)
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, DependencyConfigurationError)
@@ -838,7 +846,8 @@ local netpols = esp.context().netpols;
 		t.Log("waiting for the conflict event")
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var events corev1.EventList
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorWithResourceVersion(eventSelectorForManagedResource(mr.Name), mr.ResourceVersion)))
 			require.Len(t, events.Items, 1)
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, ApplyError)
@@ -908,7 +917,8 @@ local netpols = esp.context().netpols;
 		t.Log("waiting for the conflict event")
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var events corev1.EventList
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorWithResourceVersion(eventSelectorForManagedResource(mr.Name), mr.ResourceVersion)))
 			require.Len(t, events.Items, 1)
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, ApplyError)
@@ -988,7 +998,8 @@ local netpols = esp.context().netpols;
 		t.Log("waiting for the conflict event")
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var events corev1.EventList
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorWithResourceVersion(eventSelectorForManagedResource(mr.Name), mr.ResourceVersion)))
 			require.Len(t, events.Items, 1)
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, ApplyError)
@@ -1058,7 +1069,8 @@ local netpols = esp.context().netpols;
 		t.Log("waiting for the conflict event")
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var events corev1.EventList
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorWithResourceVersion(eventSelectorForManagedResource(mr.Name), mr.ResourceVersion)))
 			require.Len(t, events.Items, 1)
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, ApplyError)
@@ -1178,7 +1190,8 @@ local netpols = esp.context().netpols;
 		t.Log("waiting for the validation error event")
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var events corev1.EventList
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorWithResourceVersion(eventSelectorForManagedResource(mr.Name), mr.ResourceVersion)))
 			require.Len(t, events.Items, 1)
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, ApplyError)
@@ -1228,7 +1241,8 @@ local netpols = esp.context().netpols;
 		t.Log("waiting for the validation error event")
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var events corev1.EventList
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorWithResourceVersion(eventSelectorForManagedResource(mr.Name), mr.ResourceVersion)))
 			require.Len(t, events.Items, 1)
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, ApplyError)
@@ -1892,7 +1906,7 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingClient(t *testing.T) {
 		Scheme:                  c.Scheme(),
 		ControllerLifetimeCtx:   ctx,
 		JsonnetLibraryNamespace: "jsonnetlibs",
-		Recorder:                mgr.GetEventRecorderFor("managed-resource-controller"),
+		Recorder:                mgr.GetEventRecorder("managed-resource-controller"),
 	}
 	require.NoError(t, subject.SetupWithManager("slow_client", cfg, mgr))
 
@@ -2043,6 +2057,15 @@ func eventSelectorFor(kind, name string) client.ListOption {
 
 func eventSelectorForManagedResource(managedResourceName string) client.ListOption {
 	return eventSelectorFor("ManagedResource", managedResourceName)
+}
+
+func eventSelectorWithResourceVersion(base client.ListOption, resourceVersion string) client.ListOption {
+	return client.MatchingFieldsSelector{
+		Selector: fields.AndSelectors(
+			base.(client.MatchingFieldsSelector).Selector,
+			fields.OneTermEqualSelector("involvedObject.resourceVersion", resourceVersion),
+		),
+	}
 }
 
 // freePort returns a free port on the host.
