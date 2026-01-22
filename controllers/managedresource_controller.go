@@ -21,7 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -60,7 +60,7 @@ type ManagedResourceReconciler struct {
 
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 
 	ControllerLifetimeCtx   context.Context
 	JsonnetLibraryNamespace string
@@ -130,7 +130,7 @@ func (ci *definitionCache) Size(ctx context.Context) (int, int, error) {
 //+kubebuilder:rbac:groups=espejote.io,resources=jsonnetlibraries,verbs=get;list;watch
 
 //+kubebuilder:rbac:groups="",resources=serviceaccounts/token,verbs=create
-//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+//+kubebuilder:rbac:groups="";events.k8s.io,resources=events,verbs=create;update;patch
 
 type EspejoteErrorType string
 
@@ -311,7 +311,7 @@ func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, req 
 			objs = append(objs, tobj)
 		}
 		for _, obj := range objs {
-			r.Recorder.Eventf(obj, "Warning", errType, "Reconcile error: %s", recErr.Error())
+			r.Recorder.Eventf(obj, nil, "Warning", errType, "Reconcile", "Reconcile error: %s", recErr.Error())
 		}
 		reconcileErrors.WithLabelValues(r.For.Name, r.For.Namespace, req.TriggerInfo.TriggerName, errType).Inc()
 	}

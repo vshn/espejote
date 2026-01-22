@@ -29,7 +29,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	toolscache "k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -51,7 +51,7 @@ import (
 type ManagedResourceControllerManager struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 
 	ControllerLifetimeCtx   context.Context
 	JsonnetLibraryNamespace string
@@ -155,7 +155,7 @@ func (r *ManagedResourceControllerManager) recordErr(ctx context.Context, err er
 		errType = string(espejoteErr.Type)
 	}
 
-	r.Recorder.Event(&managedResource, "Warning", errType, fmt.Sprintf("%s: %s", errType, err.Error()))
+	r.Recorder.Eventf(&managedResource, nil, "Warning", errType, "Reconcile", "%s: %s", errType, err.Error())
 	var statusUpdateErr error
 	if managedResource.Status.Status != errType {
 		managedResource.Status.Status = errType

@@ -209,7 +209,7 @@ func runController(cmd *cobra.Command, _ []string) error {
 	mrr := &controllers.ManagedResourceControllerManager{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("managed-resource-controller"),
+		Recorder: mgr.GetEventRecorder("managed-resource-controller"),
 
 		ControllerLifetimeCtx:   lifetimeCtx,
 		JsonnetLibraryNamespace: jsonnetLibraryNamespace,
