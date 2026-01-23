@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"github.com/DmitriyVTitov/size"
 	"github.com/google/go-jsonnet"
@@ -73,6 +74,10 @@ type ManagedResourceReconciler struct {
 
 	configHash       string
 	configGeneration int64
+
+	// started is set to true after the first reconcile has been started.
+	// It's a bit of a hack to detect that the caches are synced as it's much easier than starting to track the cache sync state.
+	started atomic.Bool
 }
 
 type instanceCache struct {
@@ -170,6 +175,8 @@ func newEspejoteError(err error, t EspejoteErrorType) EspejoteError {
 }
 
 func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req Request) (ctrl.Result, error) {
+	r.started.CompareAndSwap(false, true)
+
 	// Since we are not using the default builder we need to add the request to the context ourselves
 	ctx = log.IntoContext(ctx, log.FromContext(ctx).WithValues("request", req))
 

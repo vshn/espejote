@@ -132,6 +132,12 @@ func (r *ManagedResourceControllerManager) Reconcile(ctx context.Context, req re
 				r.recordErr(ctx, fmt.Errorf("failed to ensure instance controller: %w", err), string(DependencyConfigurationError), managedResource, req),
 			)
 		}
+		if !ic.reconciler.started.Load() && managedResource.Status.Status != string(WaitingForCacheSync) {
+			managedResource.Status.Status = string(WaitingForCacheSync)
+			if err := r.Status().Update(ctx, &managedResource); err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to update status of managed resource %q: %w", req.NamespacedName, err)
+			}
+		}
 		if err := ic.StartErr(); err != nil {
 			return ctrl.Result{}, multierr.Combine(
 				fmt.Errorf("failed to start instance controller for managed resource %q: %w", req.NamespacedName, err),
@@ -156,14 +162,13 @@ func (r *ManagedResourceControllerManager) recordErr(ctx context.Context, err er
 	}
 
 	r.Recorder.Eventf(&managedResource, nil, "Warning", errType, "Reconcile", "%s: %s", errType, err.Error())
-	var statusUpdateErr error
 	if managedResource.Status.Status != errType {
 		managedResource.Status.Status = errType
 		if err := r.Status().Update(ctx, &managedResource); err != nil {
-			statusUpdateErr = fmt.Errorf("failed to update status of managed resource %q: %w", req.NamespacedName, err)
+			return fmt.Errorf("failed to update status of managed resource %q: %w", req.NamespacedName, err)
 		}
 	}
-	return statusUpdateErr
+	return nil
 }
 
 func (r *ManagedResourceControllerManager) ensureInstanceControllerFor(ctx context.Context, mr espejotev1alpha1.ManagedResource) (*resourceController, error) {
@@ -197,13 +202,6 @@ func (r *ManagedResourceControllerManager) ensureInstanceControllerFor(ctx conte
 		<-c.done
 		l.Info("Controller stopped", "duration", time.Since(t))
 		delete(r.controllers, mrKey)
-	}
-
-	if mr.Status.Status != string(WaitingForCacheSync) {
-		mr.Status.Status = string(WaitingForCacheSync)
-		if err := r.Status().Update(ctx, &mr); err != nil {
-			return nil, fmt.Errorf("failed to update status of managed resource %q: %w", mrKey, err)
-		}
 	}
 
 	instanceCtrlCtx, instanceCtrlCancel := context.WithCancel(r.ControllerLifetimeCtx)
