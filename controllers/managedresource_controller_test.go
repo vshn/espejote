@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"bufio"
 	"context"
 	"encoding/json/v2"
 	"fmt"
@@ -653,6 +654,10 @@ local netpols = esp.context().netpols;
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, DependencyConfigurationError)
 		}, 5*time.Second, 100*time.Millisecond)
+
+		t.Log("ensure that metrics continue to work while resource is misconfigured")
+		_, err := urlGatherer(fmt.Sprintf("http://localhost:%d/metrics", metricsPort)).Gather()
+		require.NoError(t, err)
 	})
 
 	t.Run("duplicate trigger definition", func(t *testing.T) {
@@ -1888,16 +1893,28 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingClient(t *testing.T) {
 		block: make(chan struct{}),
 		log:   t.Log,
 	}
+	forbidder := &forbiddingRoundTripper{
+		forbiddenPathPrefix: "/api/v1/namespaces/forbidden/secrets",
+		log:                 t.Log,
+	}
+	// Wrap the transport to use the blockingRoundTripper and forbiddingRoundTripper
 	cfg.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
-		blocker.RoundTripper = rt
+		blocker.RoundTripper = forbidder
+		forbidder.RoundTripper = rt
 		return blocker
 	}
 	require.NoError(t, err)
 
 	ctx := log.IntoContext(t.Context(), testr.New(t))
 
+	metricsPort, err := freePort()
+	t.Log("metrics port:", metricsPort)
+	require.NoError(t, err)
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme,
+		Metrics: metricserver.Options{
+			BindAddress: ":" + strconv.Itoa(metricsPort),
+		},
 		Logger: testr.New(t),
 	})
 	require.NoError(t, err)
@@ -1942,6 +1959,10 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingClient(t *testing.T) {
 			assert.Equal(t, "WaitingForCacheSync", mr.Status.Status)
 		}, 5*time.Second, 10*time.Millisecond)
 
+		t.Log("ensure that metrics continue to work while waiting for cache sync")
+		_, err := urlGatherer(fmt.Sprintf("http://localhost:%d/metrics", metricsPort)).Gather()
+		require.NoError(t, err)
+
 		t.Log("unblocking the cache sync")
 		close(blocker.block)
 
@@ -1954,9 +1975,67 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingClient(t *testing.T) {
 		require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorForManagedResource(mr.Name)))
 		require.Len(t, events.Items, 0, "waiting for caches should not create error events")
 	})
+
+	t.Run("test controller startup error", func(t *testing.T) {
+		testns := testutil.TmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-error",
+				Namespace: testns,
+			},
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Context: []espejotev1alpha1.ManagedResourceContext{{
+					Name: "context",
+					Resource: espejotev1alpha1.ContextResource{
+						APIVersion: "v1",
+						Kind:       "Secret",
+						Namespace:  ptr.To("forbidden"),
+					},
+				}},
+				CacheSyncTimeout: metav1.Duration{Duration: time.Second},
+				Template:         `null`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			assert.Equal(t, "ControllerStartError", mr.Status.Status)
+		}, 5*time.Second, 10*time.Millisecond)
+
+		t.Log("check if metrics are still available despite controller start error")
+		_, err := urlGatherer(fmt.Sprintf("http://localhost:%d/metrics", metricsPort)).Gather()
+		require.NoError(t, err)
+	})
 }
 
 var cmRequestPathRegex = regexp.MustCompile(`/api/v1/namespaces/[^/]+/configmaps(/[^/]+)?$`)
+
+// forbiddingRoundTripper is an http.RoundTripper that forbids requests to a given path prefix.
+// I don't think roundtrippers are supposed be used for that, so it's slightly hacky.
+// TODO: consider replacing with some envtest RBAC setup - did not really find a way to do that yet.
+// Another option would be through a local proxy server.
+type forbiddingRoundTripper struct {
+	http.RoundTripper
+
+	log                 func(...any)
+	forbiddenPathPrefix string
+}
+
+func (f *forbiddingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	f.log("forbiddingRoundTripper: RoundTrip called for", req.Method, req.URL.Path)
+	if strings.HasPrefix(req.URL.Path, f.forbiddenPathPrefix) {
+		f.log("forbiddingRoundTripper: forbidding request", req.Method, req.URL.Path)
+		return httpForbiddenResponse(req)
+	}
+	return f.RoundTripper.RoundTrip(req)
+}
+
+func httpForbiddenResponse(req *http.Request) (*http.Response, error) {
+	res := bufio.NewReader(strings.NewReader("HTTP/1.1 403 Forbidden\r\nContent-Length: 9\r\nContent-Type: text/plain\r\n\r\nforbidden"))
+	return http.ReadResponse(res, req)
+}
 
 // blockingRoundTripper is an http.RoundTripper that blocks on configmap requests until unblocked.
 type blockingRoundTripper struct {
@@ -1967,14 +2046,14 @@ type blockingRoundTripper struct {
 }
 
 func (b *blockingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	b.log("RoundTrip called for", req.Method, req.URL.Path)
+	b.log("blockingRoundTripper: RoundTrip called for", req.Method, req.URL.Path)
 	if cmRequestPathRegex.MatchString(req.URL.Path) {
-		b.log("Detected configmap request, blocking...", req.Method, req.URL.Path)
+		b.log("blockingRoundTripper: Detected configmap request, blocking...", req.Method, req.URL.Path)
 		select {
 		case <-b.block:
 		case <-req.Context().Done():
 		}
-		b.log("Unblocked configmap request", req.Method, req.URL.Path)
+		b.log("blockingRoundTripper: Unblocked configmap request", req.Method, req.URL.Path)
 	}
 	return b.RoundTripper.RoundTrip(req)
 }

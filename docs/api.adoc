@@ -351,6 +351,12 @@ The namespace is configured at controller startup and normally points to the nam
 The template can return a single object, a list of objects, or null. Everything else is considered an error. +
 If a list is returned, null objects in this list are silently dropped. +
 Namespaced objects default to the namespace of the ManagedResource. + |  | 
+| *`cacheSyncTimeout`* __link:https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#duration-v1-meta[$$Duration$$]__ | CacheSyncTimeout defines the maximum time to wait for the initial sync of the context and trigger caches to complete. +
+If the initial sync does not complete within this time, the ManagedResource is marked as failed. +
+This usually happens because of missing RBAC permissions. +
+After the initial sync, the ManagedResource is reconciled normally. +
+Defaults to 2 minutes. + |  | Format: duration +
+
 | *`applyOptions`* __xref:{anchor_prefix}-github-com-vshn-espejote-api-v1alpha1-applyoptions[$$ApplyOptions$$]__ | ApplyOptions defines the options for applying the ManagedResource + |  | 
 |===
 
