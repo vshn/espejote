@@ -52,21 +52,22 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		Scheme: scheme,
 	})
 	require.NoError(t, err)
-	blocker := &blockingRoundTripper{
-		blockingPathPrefix: "/api/v1/namespaces/zzz-test-blocking/configmaps",
-		block:              make(chan struct{}),
-		log:                t.Log,
-	}
-	forbidder := &forbiddingRoundTripper{
-		forbiddenPathPrefix: "/api/v1/namespaces/zzz-test-forbidden/secrets",
-		log:                 t.Log,
-	}
+	requestBlock := make(chan struct{})
 	// Wrap the transport to use the blockingRoundTripper and forbiddingRoundTripper
-	cfg.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
-		blocker.RoundTripper = forbidder
-		forbidder.RoundTripper = rt
-		return blocker
-	}
+	cfg.Wrap(func(rt http.RoundTripper) http.RoundTripper {
+		return &blockingRoundTripper{
+			blockingPathPrefix: "/api/v1/namespaces/zzz-test-blocking/configmaps",
+			block:              requestBlock,
+			log:                t.Log,
+
+			RoundTripper: &forbiddingRoundTripper{
+				forbiddenPathPrefix: "/api/v1/namespaces/zzz-test-forbidden/secrets",
+				log:                 t.Log,
+
+				RoundTripper: rt,
+			},
+		}
+	})
 
 	ctx := log.IntoContext(t.Context(), testr.New(t))
 
@@ -1929,7 +1930,7 @@ local cm(name) = {
 		require.NoError(t, err)
 
 		t.Log("unblocking the cache sync")
-		close(blocker.block)
+		close(requestBlock)
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
