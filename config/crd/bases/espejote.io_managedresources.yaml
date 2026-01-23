@@ -78,6 +78,15 @@ spec:
                       re-acquire conflicting fields owned by other people.
                     type: boolean
                 type: object
+              cacheSyncTimeout:
+                description: |-
+                  CacheSyncTimeout defines the maximum time to wait for the initial sync of the context and trigger caches to complete.
+                  If the initial sync does not complete within this time, the ManagedResource is marked as failed.
+                  This usually happens because of missing RBAC permissions.
+                  After the initial sync, the ManagedResource is reconciled normally.
+                  Defaults to 2 minutes.
+                format: duration
+                type: string
               context:
                 description: Context defines the context for the ManagedResource
                 items:

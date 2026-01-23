@@ -234,6 +234,7 @@ func (r *ManagedResourceControllerManager) ensureInstanceControllerFor(ctx conte
 			SkipNameValidation: ptr.To(true),
 			Reconciler:         reconciler,
 			Logger:             r.logger,
+			CacheSyncTimeout:   mr.Spec.CacheSyncTimeout.Duration,
 		},
 	)
 	if err != nil {

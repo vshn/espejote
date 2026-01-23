@@ -386,6 +386,7 @@ func (in *ManagedResourceSpec) DeepCopyInto(out *ManagedResourceSpec) {
 		}
 	}
 	out.ServiceAccountRef = in.ServiceAccountRef
+	out.CacheSyncTimeout = in.CacheSyncTimeout
 	out.ApplyOptions = in.ApplyOptions
 }
 

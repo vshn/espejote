@@ -40,6 +40,15 @@ type ManagedResourceSpec struct {
 	// Namespaced objects default to the namespace of the ManagedResource.
 	Template string `json:"template,omitempty"`
 
+	// CacheSyncTimeout defines the maximum time to wait for the initial sync of the context and trigger caches to complete.
+	// If the initial sync does not complete within this time, the ManagedResource is marked as failed.
+	// This usually happens because of missing RBAC permissions.
+	// After the initial sync, the ManagedResource is reconciled normally.
+	// Defaults to 2 minutes.
+	// +kubebuilder:validation:Format=duration
+	// +optional
+	CacheSyncTimeout metav1.Duration `json:"cacheSyncTimeout,omitempty"`
+
 	// ApplyOptions defines the options for applying the ManagedResource
 	ApplyOptions ApplyOptions `json:"applyOptions,omitempty"`
 }
