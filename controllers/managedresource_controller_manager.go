@@ -132,17 +132,17 @@ func (r *ManagedResourceControllerManager) Reconcile(ctx context.Context, req re
 				r.recordErr(ctx, fmt.Errorf("failed to ensure instance controller: %w", err), string(DependencyConfigurationError), managedResource, req),
 			)
 		}
-		if !ic.reconciler.started.Load() && managedResource.Status.Status != string(WaitingForCacheSync) {
-			managedResource.Status.Status = string(WaitingForCacheSync)
-			if err := r.Status().Update(ctx, &managedResource); err != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to update status of managed resource %q: %w", req.NamespacedName, err)
-			}
-		}
 		if err := ic.StartErr(); err != nil {
 			return ctrl.Result{}, multierr.Combine(
 				fmt.Errorf("failed to start instance controller for managed resource %q: %w", req.NamespacedName, err),
 				r.recordErr(ctx, fmt.Errorf("failed to start instance controller: %w", err), string(ControllerStartError), managedResource, req),
 			)
+		}
+		if !ic.reconciler.started.Load() && managedResource.Status.Status != string(WaitingForCacheSync) {
+			managedResource.Status.Status = string(WaitingForCacheSync)
+			if err := r.Status().Update(ctx, &managedResource); err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to update status of managed resource %q: %w", req.NamespacedName, err)
+			}
 		}
 		select {
 		case ic.in <- event.TypedGenericEvent[Request]{Object: Request{}}:
