@@ -673,6 +673,12 @@ local netpols = esp.context().netpols;
 		t.Log("ensure that metrics continue to work while resource is misconfigured")
 		_, err := urlGatherer(fmt.Sprintf("http://localhost:%d/metrics", metricsPort)).Gather()
 		require.NoError(t, err)
+
+		requireStableResourceVersion(t, ctx, func(ctx context.Context) (client.Object, error) {
+			mrCopy := &espejotev1alpha1.ManagedResource{}
+			err := c.Get(ctx, client.ObjectKeyFromObject(mr), mrCopy)
+			return mrCopy, err
+		})
 	})
 
 	t.Run("duplicate trigger definition", func(t *testing.T) {
@@ -703,6 +709,16 @@ local netpols = esp.context().netpols;
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, DependencyConfigurationError)
 		}, 5*time.Second, 100*time.Millisecond)
+
+		t.Log("ensure that metrics continue to work while resource is misconfigured")
+		_, err := urlGatherer(fmt.Sprintf("http://localhost:%d/metrics", metricsPort)).Gather()
+		require.NoError(t, err)
+
+		requireStableResourceVersion(t, ctx, func(ctx context.Context) (client.Object, error) {
+			mrCopy := &espejotev1alpha1.ManagedResource{}
+			err := c.Get(ctx, client.ObjectKeyFromObject(mr), mrCopy)
+			return mrCopy, err
+		})
 	})
 
 	t.Run("service account does not exist", func(t *testing.T) {
@@ -732,6 +748,16 @@ local netpols = esp.context().netpols;
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, ServiceAccountError)
 		}, 5*time.Second, 100*time.Millisecond)
+
+		t.Log("ensure that metrics continue to work while resource is misconfigured")
+		_, err := urlGatherer(fmt.Sprintf("http://localhost:%d/metrics", metricsPort)).Gather()
+		require.NoError(t, err)
+
+		requireStableResourceVersion(t, ctx, func(ctx context.Context) (client.Object, error) {
+			mrCopy := &espejotev1alpha1.ManagedResource{}
+			err := c.Get(ctx, client.ObjectKeyFromObject(mr), mrCopy)
+			return mrCopy, err
+		})
 	})
 
 	t.Run("invalid template return", func(t *testing.T) {
@@ -819,6 +845,16 @@ local netpols = esp.context().netpols;
 			assert.Equal(t, "Warning", events.Items[0].Type)
 			assert.Contains(t, events.Items[0].Message, DependencyConfigurationError)
 		}, 5*time.Second, 100*time.Millisecond)
+
+		t.Log("ensure that metrics continue to work while resource is misconfigured")
+		_, err := urlGatherer(fmt.Sprintf("http://localhost:%d/metrics", metricsPort)).Gather()
+		require.NoError(t, err)
+
+		requireStableResourceVersion(t, ctx, func(ctx context.Context) (client.Object, error) {
+			mrCopy := &espejotev1alpha1.ManagedResource{}
+			err := c.Get(ctx, client.ObjectKeyFromObject(mr), mrCopy)
+			return mrCopy, err
+		})
 	})
 
 	t.Run("force ownership", func(t *testing.T) {
@@ -1975,6 +2011,12 @@ local cm(name) = {
 		t.Log("check if metrics are still available despite controller start error")
 		_, err := urlGatherer(fmt.Sprintf("http://localhost:%d/metrics", metricsPort)).Gather()
 		require.NoError(t, err)
+
+		requireStableResourceVersion(t, ctx, func(ctx context.Context) (client.Object, error) {
+			mrCopy := &espejotev1alpha1.ManagedResource{}
+			err := c.Get(ctx, client.ObjectKeyFromObject(mr), mrCopy)
+			return mrCopy, err
+		})
 	})
 }
 
@@ -2125,4 +2167,37 @@ func freePort() (int, error) {
 	}
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
+// requireStableResourceVersion asserts that the resource version of the object returned by getObj stabilizes within 11 seconds.
+// It repeatedly calls getObj and compares the resource versions of two consecutive calls that are 2 seconds apart.
+func requireStableResourceVersion(t *testing.T, ctx context.Context, getObj func(ctx context.Context) (client.Object, error)) {
+	t.Helper()
+	const (
+		timeout   = 11 * time.Second
+		callDelay = 2 * time.Second
+	)
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+breakTestLoop:
+	for ctx.Err() == nil {
+		obj1, err := getObj(ctx)
+		require.NoError(t, err, "failed to get object for resource version stability check")
+		select {
+		case <-ctx.Done():
+			break breakTestLoop
+		case <-time.After(callDelay):
+		}
+		obj2, err := getObj(ctx)
+		require.NoError(t, err, "failed to get object for resource version stability check")
+
+		if obj1.GetResourceVersion() == obj2.GetResourceVersion() {
+			return
+		}
+		t.Logf("ResourceVersion changed from %s to %s, retrying...", obj1.GetResourceVersion(), obj2.GetResourceVersion())
+	}
+
+	t.Fatalf("ResourceVersion did not stabilize within the timeout")
 }
