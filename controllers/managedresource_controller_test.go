@@ -52,6 +52,21 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		Scheme: scheme,
 	})
 	require.NoError(t, err)
+	blocker := &blockingRoundTripper{
+		blockingPathPrefix: "/api/v1/namespaces/zzz-test-blocking/configmaps",
+		block:              make(chan struct{}),
+		log:                t.Log,
+	}
+	forbidder := &forbiddingRoundTripper{
+		forbiddenPathPrefix: "/api/v1/namespaces/zzz-test-forbidden/secrets",
+		log:                 t.Log,
+	}
+	// Wrap the transport to use the blockingRoundTripper and forbiddingRoundTripper
+	cfg.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
+		blocker.RoundTripper = forbidder
+		forbidder.RoundTripper = rt
+		return blocker
+	}
 
 	ctx := log.IntoContext(t.Context(), testr.New(t))
 
@@ -1879,61 +1894,10 @@ local cm(name) = {
 			assert.ElementsMatch(t, []string{"cm-continue", "cm-pre-abort-inherit"}, cmNames)
 		}, 5*time.Second, 100*time.Millisecond)
 	})
-}
-
-func Test_ManagedResourceReconciler_Reconcile_WithBlockingClient(t *testing.T) {
-	t.Parallel()
-
-	scheme, cfg := testutil.SetupEnvtestEnv(t)
-	c, err := client.NewWithWatch(cfg, client.Options{
-		Scheme: scheme,
-	})
-	require.NoError(t, err)
-	blocker := &blockingRoundTripper{
-		blockingPathPrefix: "/api/v1/namespaces/blocking/secrets",
-		block:              make(chan struct{}),
-		log:                t.Log,
-	}
-	forbidder := &forbiddingRoundTripper{
-		forbiddenPathPrefix: "/api/v1/namespaces/forbidden/secrets",
-		log:                 t.Log,
-	}
-	// Wrap the transport to use the blockingRoundTripper and forbiddingRoundTripper
-	cfg.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
-		blocker.RoundTripper = forbidder
-		forbidder.RoundTripper = rt
-		return blocker
-	}
-
-	ctx := log.IntoContext(t.Context(), testr.New(t))
-
-	metricsPort, err := freePort()
-	t.Log("metrics port:", metricsPort)
-	require.NoError(t, err)
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: scheme,
-		Metrics: metricserver.Options{
-			BindAddress: ":" + strconv.Itoa(metricsPort),
-		},
-		Logger: testr.New(t),
-	})
-	require.NoError(t, err)
-	subject := &ManagedResourceControllerManager{
-		Client:                  c,
-		Scheme:                  c.Scheme(),
-		ControllerLifetimeCtx:   ctx,
-		JsonnetLibraryNamespace: "jsonnetlibs",
-		Recorder:                mgr.GetEventRecorder("managed-resource-controller"),
-	}
-	require.NoError(t, subject.SetupWithManager("slow_client", cfg, mgr))
-
-	mgrCtx, mgrCancel := context.WithCancel(ctx)
-	t.Cleanup(mgrCancel)
-	go func() {
-		require.NoError(t, mgr.Start(mgrCtx))
-	}()
 
 	t.Run("test waiting for sync before becoming ready", func(t *testing.T) {
+		t.Parallel()
+
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
@@ -1947,7 +1911,7 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingClient(t *testing.T) {
 					Resource: espejotev1alpha1.ContextResource{
 						APIVersion: "v1",
 						Kind:       "ConfigMap",
-						Namespace:  ptr.To("blocking"),
+						Namespace:  ptr.To("zzz-test-blocking"),
 					},
 				}},
 				Template: `null`,
@@ -1978,6 +1942,8 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingClient(t *testing.T) {
 	})
 
 	t.Run("test controller startup error", func(t *testing.T) {
+		t.Parallel()
+
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
@@ -1991,7 +1957,7 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingClient(t *testing.T) {
 					Resource: espejotev1alpha1.ContextResource{
 						APIVersion: "v1",
 						Kind:       "Secret",
-						Namespace:  ptr.To("forbidden"),
+						Namespace:  ptr.To("zzz-test-forbidden"),
 					},
 				}},
 				CacheSyncTimeout: metav1.Duration{Duration: time.Second},
@@ -2023,7 +1989,6 @@ type forbiddingRoundTripper struct {
 }
 
 func (f *forbiddingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	f.log("forbiddingRoundTripper: RoundTrip called for", req.Method, req.URL.Path)
 	if strings.HasPrefix(req.URL.Path, f.forbiddenPathPrefix) {
 		f.log("forbiddingRoundTripper: forbidding request", req.Method, req.URL.Path)
 		return httpForbiddenResponse(req)
@@ -2047,7 +2012,6 @@ type blockingRoundTripper struct {
 }
 
 func (b *blockingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	b.log("blockingRoundTripper: RoundTrip called for", req.Method, req.URL.Path)
 	if strings.HasPrefix(req.URL.Path, b.blockingPathPrefix) {
 		b.log("blockingRoundTripper: Detected request to blocking path prefix, blocking...", req.Method, req.URL.Path)
 		select {
