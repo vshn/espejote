@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -1889,9 +1888,11 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingClient(t *testing.T) {
 	c, err := client.NewWithWatch(cfg, client.Options{
 		Scheme: scheme,
 	})
+	require.NoError(t, err)
 	blocker := &blockingRoundTripper{
-		block: make(chan struct{}),
-		log:   t.Log,
+		blockingPathPrefix: "/api/v1/namespaces/blocking/secrets",
+		block:              make(chan struct{}),
+		log:                t.Log,
 	}
 	forbidder := &forbiddingRoundTripper{
 		forbiddenPathPrefix: "/api/v1/namespaces/forbidden/secrets",
@@ -1903,7 +1904,6 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingClient(t *testing.T) {
 		forbidder.RoundTripper = rt
 		return blocker
 	}
-	require.NoError(t, err)
 
 	ctx := log.IntoContext(t.Context(), testr.New(t))
 
@@ -1947,6 +1947,7 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingClient(t *testing.T) {
 					Resource: espejotev1alpha1.ContextResource{
 						APIVersion: "v1",
 						Kind:       "ConfigMap",
+						Namespace:  ptr.To("blocking"),
 					},
 				}},
 				Template: `null`,
@@ -2010,8 +2011,6 @@ func Test_ManagedResourceReconciler_Reconcile_WithBlockingClient(t *testing.T) {
 	})
 }
 
-var cmRequestPathRegex = regexp.MustCompile(`/api/v1/namespaces/[^/]+/configmaps(/[^/]+)?$`)
-
 // forbiddingRoundTripper is an http.RoundTripper that forbids requests to a given path prefix.
 // I don't think roundtrippers are supposed be used for that, so it's slightly hacky.
 // TODO: consider replacing with some envtest RBAC setup - did not really find a way to do that yet.
@@ -2037,23 +2036,25 @@ func httpForbiddenResponse(req *http.Request) (*http.Response, error) {
 	return http.ReadResponse(res, req)
 }
 
-// blockingRoundTripper is an http.RoundTripper that blocks on configmap requests until unblocked.
+// blockingRoundTripper is an http.RoundTripper that blocks on requests to the given path prefix until the block channel is closed.
 type blockingRoundTripper struct {
 	http.RoundTripper
 
-	log   func(...any)
+	log                func(...any)
+	blockingPathPrefix string
+
 	block chan struct{}
 }
 
 func (b *blockingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	b.log("blockingRoundTripper: RoundTrip called for", req.Method, req.URL.Path)
-	if cmRequestPathRegex.MatchString(req.URL.Path) {
-		b.log("blockingRoundTripper: Detected configmap request, blocking...", req.Method, req.URL.Path)
+	if strings.HasPrefix(req.URL.Path, b.blockingPathPrefix) {
+		b.log("blockingRoundTripper: Detected request to blocking path prefix, blocking...", req.Method, req.URL.Path)
 		select {
 		case <-b.block:
 		case <-req.Context().Done():
 		}
-		b.log("blockingRoundTripper: Unblocked configmap request", req.Method, req.URL.Path)
+		b.log("blockingRoundTripper: Unblocked request to blocking path prefix", req.Method, req.URL.Path)
 	}
 	return b.RoundTripper.RoundTrip(req)
 }
