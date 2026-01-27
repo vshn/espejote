@@ -90,7 +90,11 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		Recorder:                mgr.GetEventRecorder("managed-resource-controller"),
 	}
 	require.NoError(t, subject.SetupWithManager("managedresource", cfg, mgr))
-	metrics.Registry.MustRegister(&CacheSizeCollector{ControllerManager: subject})
+	metrics.Registry.MustRegister(&CacheSizeCollector{
+		ControllerManager:     subject,
+		OverallCollectTimeout: 5 * time.Second,
+		CacheInstanceTimeout:  1 * time.Second,
+	})
 
 	mgrCtx, mgrCancel := context.WithCancel(ctx)
 	t.Cleanup(mgrCancel)
