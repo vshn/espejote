@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/apimachinery/pkg/types"
@@ -60,78 +61,90 @@ var (
 // It loops over all caches and collects the number of cached objects and the size of the cache.
 type CacheSizeCollector struct {
 	ControllerManager *ManagedResourceControllerManager
+
+	OverallCollectTimeout time.Duration
+	CacheInstanceTimeout  time.Duration
 }
 
 // Describe implements the prometheus.Collector interface.
-func (c *CacheSizeCollector) Describe(ch chan<- *prometheus.Desc) {
+func (cs *CacheSizeCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- cachedObjectsDesc
 	ch <- cacheSizeBytesDesc
 }
 
 // Collect implements the prometheus.Collector interface.
-func (c *CacheSizeCollector) Collect(ch chan<- prometheus.Metric) {
-	ctx := context.Background()
+func (cs *CacheSizeCollector) Collect(ch chan<- prometheus.Metric) {
+	ctx, cancel := context.WithTimeout(context.Background(), cs.OverallCollectTimeout)
+	defer cancel()
 
-	for mr, c := range c.shallowCloneCachesWithLock() {
+	for mr, c := range cs.shallowCloneCachesWithLock() {
 		for cn, cv := range c.contextCaches {
-			count, sizeBytes, err := cv.Size(ctx)
-			if err != nil {
-				fmt.Printf("Metrics: Error getting context cache size %s/%s/%s: %s\n", mr.Name, mr.Namespace, cn, err.Error())
-				continue
-			}
-			ch <- prometheus.MustNewConstMetric(
-				cachedObjectsDesc,
-				prometheus.GaugeValue,
-				float64(count),
-				mr.Name,
-				mr.Namespace,
-				"context",
-				cn,
-			)
-			ch <- prometheus.MustNewConstMetric(
-				cacheSizeBytesDesc,
-				prometheus.GaugeValue,
-				float64(sizeBytes),
-				mr.Name,
-				mr.Namespace,
-				"context",
-				cn,
-			)
+			func(mr types.NamespacedName, cn string, cv *definitionCache) {
+				ctx, cancel := context.WithTimeout(ctx, cs.CacheInstanceTimeout)
+				defer cancel()
+				count, sizeBytes, err := cv.Size(ctx)
+				if err != nil {
+					fmt.Printf("Metrics: Error getting context cache size %s/%s/%s: %s\n", mr.Name, mr.Namespace, cn, err.Error())
+					return
+				}
+				ch <- prometheus.MustNewConstMetric(
+					cachedObjectsDesc,
+					prometheus.GaugeValue,
+					float64(count),
+					mr.Name,
+					mr.Namespace,
+					"context",
+					cn,
+				)
+				ch <- prometheus.MustNewConstMetric(
+					cacheSizeBytesDesc,
+					prometheus.GaugeValue,
+					float64(sizeBytes),
+					mr.Name,
+					mr.Namespace,
+					"context",
+					cn,
+				)
+			}(mr, cn, cv)
 		}
 		for tn, tv := range c.triggerCaches {
-			count, sizeBytes, err := tv.Size(ctx)
-			if err != nil {
-				fmt.Printf("Metrics: Error getting trigger cache size %s/%s/%s: %s\n", mr.Name, mr.Namespace, tn, err.Error())
-				continue
-			}
-			ch <- prometheus.MustNewConstMetric(
-				cachedObjectsDesc,
-				prometheus.GaugeValue,
-				float64(count),
-				mr.Name,
-				mr.Namespace,
-				"trigger",
-				tn,
-			)
-			ch <- prometheus.MustNewConstMetric(
-				cacheSizeBytesDesc,
-				prometheus.GaugeValue,
-				float64(sizeBytes),
-				mr.Name,
-				mr.Namespace,
-				"trigger",
-				tn,
-			)
+			func(mr types.NamespacedName, tn string, tv *definitionCache) {
+				ctx, cancel := context.WithTimeout(ctx, cs.CacheInstanceTimeout)
+				defer cancel()
+				count, sizeBytes, err := tv.Size(ctx)
+				if err != nil {
+					fmt.Printf("Metrics: Error getting trigger cache size %s/%s/%s: %s\n", mr.Name, mr.Namespace, tn, err.Error())
+					return
+				}
+				ch <- prometheus.MustNewConstMetric(
+					cachedObjectsDesc,
+					prometheus.GaugeValue,
+					float64(count),
+					mr.Name,
+					mr.Namespace,
+					"trigger",
+					tn,
+				)
+				ch <- prometheus.MustNewConstMetric(
+					cacheSizeBytesDesc,
+					prometheus.GaugeValue,
+					float64(sizeBytes),
+					mr.Name,
+					mr.Namespace,
+					"trigger",
+					tn,
+				)
+			}(mr, tn, tv)
 		}
 	}
 }
 
-func (c *CacheSizeCollector) shallowCloneCachesWithLock() map[types.NamespacedName]*instanceCache {
-	c.ControllerManager.controllersMux.RLock()
-	defer c.ControllerManager.controllersMux.RUnlock()
+func (cs *CacheSizeCollector) shallowCloneCachesWithLock() map[types.NamespacedName]*instanceCache {
+	cs.ControllerManager.controllersMux.RLock()
+	defer cs.ControllerManager.controllersMux.RUnlock()
 
 	cloned := make(map[types.NamespacedName]*instanceCache)
-	for k, v := range c.ControllerManager.controllers {
+	for k, v := range cs.ControllerManager.controllers {
 		if c := v.reconciler.cache; c != nil {
 			cloned[k] = c
 		}

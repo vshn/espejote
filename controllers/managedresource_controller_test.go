@@ -90,7 +90,11 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		Recorder:                mgr.GetEventRecorder("managed-resource-controller"),
 	}
 	require.NoError(t, subject.SetupWithManager("managedresource", cfg, mgr))
-	metrics.Registry.MustRegister(&CacheSizeCollector{ControllerManager: subject})
+	metrics.Registry.MustRegister(&CacheSizeCollector{
+		ControllerManager:     subject,
+		OverallCollectTimeout: 5 * time.Second,
+		CacheInstanceTimeout:  1 * time.Second,
+	})
 
 	mgrCtx, mgrCancel := context.WithCancel(ctx)
 	t.Cleanup(mgrCancel)
@@ -1933,8 +1937,6 @@ local cm(name) = {
 	})
 
 	t.Run("test waiting for sync before becoming ready", func(t *testing.T) {
-		t.Parallel()
-
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
@@ -1955,6 +1957,9 @@ local cm(name) = {
 			},
 		}
 		require.NoError(t, c.Create(ctx, mr))
+		t.Cleanup(func() {
+			require.NoError(t, c.Delete(context.Background(), mr))
+		})
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
@@ -1979,8 +1984,6 @@ local cm(name) = {
 	})
 
 	t.Run("test controller startup error", func(t *testing.T) {
-		t.Parallel()
-
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
@@ -2002,6 +2005,9 @@ local cm(name) = {
 			},
 		}
 		require.NoError(t, c.Create(ctx, mr))
+		t.Cleanup(func() {
+			require.NoError(t, c.Delete(context.Background(), mr))
+		})
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
