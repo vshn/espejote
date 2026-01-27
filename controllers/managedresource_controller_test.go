@@ -1933,8 +1933,6 @@ local cm(name) = {
 	})
 
 	t.Run("test waiting for sync before becoming ready", func(t *testing.T) {
-		t.Parallel()
-
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
@@ -1955,6 +1953,9 @@ local cm(name) = {
 			},
 		}
 		require.NoError(t, c.Create(ctx, mr))
+		t.Cleanup(func() {
+			require.NoError(t, c.Delete(context.Background(), mr))
+		})
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
@@ -1979,8 +1980,6 @@ local cm(name) = {
 	})
 
 	t.Run("test controller startup error", func(t *testing.T) {
-		t.Parallel()
-
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
@@ -2002,6 +2001,9 @@ local cm(name) = {
 			},
 		}
 		require.NoError(t, c.Create(ctx, mr))
+		t.Cleanup(func() {
+			require.NoError(t, c.Delete(context.Background(), mr))
+		})
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
