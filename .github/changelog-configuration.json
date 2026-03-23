@@ -34,7 +34,8 @@
     {
       "title": "## 🔗 Dependency Updates",
       "labels": [
-        "dependency"
+        "dependency",
+        "dependencies"
       ]
     }
   ],
