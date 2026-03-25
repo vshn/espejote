@@ -25,6 +25,10 @@
     {
       "matchManagers": ["npm"],
       "groupName": "landing page nodejs dependencies"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions dependencies"
     }
   ]
 }
