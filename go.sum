@@ -140,8 +140,8 @@ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=
 github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
-github.com/jsonnet-libs/docsonnet v0.0.7-0.20231214125531-6ac6c69685b8 h1:YN9SdMwU1i5uu80HZTHy4twlJYFYYdreruWl0dNPOOc=
-github.com/jsonnet-libs/docsonnet v0.0.7-0.20231214125531-6ac6c69685b8/go.mod h1:A7GAoddNfvUyc22xyixJnc78PDivRv7NWT55iXAZiME=
+github.com/jsonnet-libs/docsonnet v0.0.7-0.20260326145441-bf6f08ae02a5 h1:4PPxNkF7sDVOgSxQW+r8tR+fZY8Afi+hPMzk0ca24J8=
+github.com/jsonnet-libs/docsonnet v0.0.7-0.20260326145441-bf6f08ae02a5/go.mod h1:A7GAoddNfvUyc22xyixJnc78PDivRv7NWT55iXAZiME=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
 github.com/klauspost/compress v1.18.0/go.mod h1:2Pp+KzxcywXVXMr50+X0Q/Lsb43OQHYWRCY2AiWywWQ=
 github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORNo=
