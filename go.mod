@@ -80,7 +80,7 @@ require (
 	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/jsonnet-libs/docsonnet v0.0.7-0.20231214125531-6ac6c69685b8 // indirect
+	github.com/jsonnet-libs/docsonnet v0.0.7-0.20260326145441-bf6f08ae02a5 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/markbates/pkger v0.17.1 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
