@@ -15,6 +15,10 @@ local espejote = import "espejote.libsonnet"
 * [`fn applyGroup(objs, errorPolicy='')`](#fn-applygroup)
 * [`fn applyOptions(obj, fieldManager, fieldManagerSuffix, force, fieldValidation)`](#fn-applyoptions)
 * [`fn context()`](#fn-context)
+* [`fn hasLabel(obj, label)`](#fn-haslabel)
+* [`fn hasLabelValue(obj, label, value)`](#fn-haslabelvalue)
+* [`fn hasLabels(obj, labels)`](#fn-haslabels)
+* [`fn inDelete()`](#fn-indelete)
 * [`fn markForDelete(obj, gracePeriodSeconds, propagationPolicy, preconditionUID, preconditionResourceVersion)`](#fn-markfordelete)
 * [`fn triggerData()`](#fn-triggerdata)
 * [`fn triggerName()`](#fn-triggername)
@@ -133,6 +137,42 @@ context()
 ```
 
 Gets the context object. Always a non-null object with the `context[].name` value as keys.
+
+
+### fn hasLabel
+
+```ts
+hasLabel(obj, label)
+```
+
+Checks if an object has a label.
+
+
+### fn hasLabelValue
+
+```ts
+hasLabelValue(obj, label, value)
+```
+
+Checks if an object has a label with a specific value.
+
+
+### fn hasLabels
+
+```ts
+hasLabels(obj, labels)
+```
+
+Checks if an object has a set of labels.
+
+
+### fn inDelete
+
+```ts
+inDelete()
+```
+
+Checks if an object is in the process of being deleted.
 
 
 ### fn markForDelete

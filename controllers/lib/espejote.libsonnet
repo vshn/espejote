@@ -242,6 +242,56 @@ local alpha = {
   |||),
   context: function() context,
 
+  '#hasLabel': d.fn(
+    |||
+      Checks if an object has a label.
+    |||,
+    [
+      d.arg('obj', d.T.object),
+      d.arg('label', d.T.string),
+    ],
+  ),
+  hasLabel: function(obj, label)
+    local objMetadata = std.get(obj, 'metadata', {});
+    local objLabels = std.get(objMetadata, 'labels', {});
+    std.objectHas(objLabels, label),
+
+  '#hasLabelValue': d.fn(
+    |||
+      Checks if an object has a label with a specific value.
+    |||,
+    [
+      d.arg('obj', d.T.object),
+      d.arg('label', d.T.string),
+      d.arg('value', d.T.string),
+    ],
+  ),
+  hasLabelValue: function(obj, label, value)
+    local objMetadata = std.get(obj, 'metadata', {});
+    local objLabels = std.get(objMetadata, 'labels', {});
+    std.get(objLabels, label, '') == value,
+
+  '#hasLabels': d.fn(
+    |||
+      Checks if an object has a set of labels.
+    |||,
+    [
+      d.arg('obj', d.T.object),
+      d.arg('labels', d.T.array),
+    ],
+  ),
+  hasLabels: function(obj, labels)
+    local matchingLabels = std.filter(
+      function(label) self.hasLabel(obj, label),
+      labels,
+    );
+    std.length(labels) == std.length(matchingLabels),
+
+  '#inDelete': d.fn(|||
+    Checks if an object is in the process of being deleted.
+  |||),
+  inDelete: function(obj) std.get(obj.metadata, 'deletionTimestamp', '') != '',
+
   '#markForDelete': d.fn(
     |||
       Marks an object for deletion.
