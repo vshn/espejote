@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "dependencies": [
+    {
+      "source": {
+        "git": {
+          "remote": "https://github.com/bastjan/jsonnunit.git",
+          "subdir": ""
+        }
+      },
+      "version": "368aab7472671f941517fae15b62d2545090c1dc",
+      "sum": "+drTWVzA1TuXMp4HWNDjo1ESp9EWzl2SzhN9vXbqeG8="
+    },
+    {
+      "source": {
+        "git": {
+          "remote": "https://github.com/jsonnet-libs/docsonnet.git",
+          "subdir": ""
+        }
+      },
+      "version": "bf6f08ae02a51c48bdcec4629b1c1a5a62c6f803",
+      "sum": "EnrolNeh0xbgNuD/XitdLiym4FzeYpL2JzMDzXuR7Co="
+    }
+  ],
+  "legacyImports": false
+}
