@@ -10,10 +10,12 @@ testbin/*
 Dockerfile.cross
 espejote
 
+contrib/lib/vendor
+
 # Goreleaser
 dist/
 .github/release-notes.md
-contrib/
+contrib/completion
 
 # Test binary, build with `go test -c`
 *.test

@@ -10,7 +10,7 @@ MAKEFLAGS += --no-builtin-variables
 
 export GOEXPERIMENT = jsonv2
 
-JSONNET_FILES   ?= $(shell find . -type f -not -path './vendor/*' \( -name '*.*jsonnet' -or -name '*.libsonnet' \))
+JSONNET_FILES   ?= $(shell find . -type f -not -path './vendor/*' -not -path './contrib/lib/vendor/*' \( -name '*.*jsonnet' -or -name '*.libsonnet' \))
 
 include Makefile.vars.mk
 
@@ -29,10 +29,15 @@ completions:
 	go run ./tools/completions fish > contrib/completion/fish/espejote
 	go run ./tools/completions zsh > contrib/completion/zsh/_espejote
 
+.PHONY: test-contrib
+test-contrib: ## Run tests for the contrib library
+	(cd contrib/lib && ./test.sh)
+
 .PHONY: test
 test: manifests generate ## Run tests
 	KUBEBUILDER_ASSETS="$(shell go tool sigs.k8s.io/controller-runtime/tools/setup-envtest use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -race -coverprofile cover.tmp.out
 	cat cover.tmp.out | grep -v "zz_generated.deepcopy.go" > cover.out
+	$(MAKE) test-contrib
 
 .PHONY: build
 build: generate manifests fmt vet $(BIN_FILENAME) ## Build manager binary
@@ -40,12 +45,17 @@ build: generate manifests fmt vet $(BIN_FILENAME) ## Build manager binary
 .PHONY: manifests
 manifests: ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	go tool sigs.k8s.io/controller-tools/cmd/controller-gen rbac:roleName=manager-role crd:generateEmbeddedObjectMeta=true webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	@echo "Updating contrib-jsonnetlibrary.yaml with the contents of contrib/lib/*.libsonnet ..."
+	yq -i '.spec.data = {}' config/contrib/contrib-jsonnetlibrary.yaml
+	for f in contrib/lib/*.libsonnet ; do fn=$$(basename $$f) fv=$$(cat $$f) yq -i '.spec.data[strenv(fn)] = strenv(fv)' config/contrib/contrib-jsonnetlibrary.yaml ; done
 
 .PHONY: docs
 docs: ## Generate documentation
 	go tool github.com/elastic/crd-ref-docs --config=crd-ref-docs-config.yaml --source-path=api/v1alpha1 --output-path docs/api.adoc
 	FORCE_COLOR=1 go run ./tools/genclidoc ./docs/cli
 	go tool github.com/jsonnet-libs/docsonnet controllers/lib/espejote.libsonnet -o docs/lib
+	rm -rf docs/contrib/lib && mkdir -p docs/contrib/lib
+	for f in contrib/lib/*.libsonnet ; do go tool github.com/jsonnet-libs/docsonnet $$f -o docs/contrib/lib/$$(basename $$f) ; done
 
 .PHONY: generate
 generate: ## Generate manifests e.g. CRD, RBAC etc.
@@ -75,7 +85,7 @@ build.docker: $(BIN_FILENAME) ## Build the docker image
 		--tag $(GHCR_IMG)
 
 clean: ## Cleans up the generated resources
-	rm -rf contrib/ dist/ cover.out $(BIN_FILENAME) || true
+	rm -rf contrib/completion dist/ cover.out $(BIN_FILENAME) ||:
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
