@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -27,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
+	clientcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	toolscache "k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/events"
@@ -411,34 +413,32 @@ func (r *ManagedResourceControllerManager) restConfigForManagedResource(ctx cont
 	if name == "" {
 		name = "default"
 	}
-	token, err := r.jwtTokenForSA(ctx, mr.GetNamespace(), name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get JWT token: %w", err)
+
+	trrt := &tokenRefreshRoundTripper{
+		ServiceAccount: types.NamespacedName{
+			Namespace: mr.GetNamespace(),
+			Name:      name,
+		},
+		CoreV1Service: r.clientset.CoreV1(),
+		tokenMux:      sync.RWMutex{},
+	}
+	// Sanity check if we can get a token for the service account before starting the controller.
+	// The round tripper would automatically refresh the token on first request, but if we can't get a token at all, we want to fail early.
+	if err := trrt.TriggerRefresh(ctx); err != nil {
+		return nil, newEspejoteError(fmt.Errorf("token request for %q failed: %w", strings.Join([]string{"system:serviceaccount", trrt.ServiceAccount.Namespace, trrt.ServiceAccount.Name}, ":"), err), ServiceAccountError)
 	}
 
 	// There's also a rest.CopyConfig function that could be used here
-	config := rest.Config{
+	config := &rest.Config{
 		WrapTransport:   r.restConfig.WrapTransport,
 		Host:            r.restConfig.Host,
-		BearerToken:     token,
 		TLSClientConfig: *r.restConfig.TLSClientConfig.DeepCopy(),
 	}
-	return &config, nil
-}
-
-// jwtTokenForSA returns a JWT token for the given service account.
-// The token is valid for 1 year.
-func (r *ManagedResourceControllerManager) jwtTokenForSA(ctx context.Context, namespace, name string) (string, error) {
-	treq, err := r.clientset.CoreV1().ServiceAccounts(namespace).CreateToken(ctx, name, &authv1.TokenRequest{
-		Spec: authv1.TokenRequestSpec{
-			ExpirationSeconds: ptr.To(int64(60 * 60 * 24 * 365)), // 1 year
-		},
-	}, metav1.CreateOptions{})
-	if err != nil {
-		return "", newEspejoteError(fmt.Errorf("token request for %q failed: %w", strings.Join([]string{"system:serviceaccount", namespace, name}, ":"), err), ServiceAccountError)
-	}
-
-	return treq.Status.Token, nil
+	config.Wrap(func(rt http.RoundTripper) http.RoundTripper {
+		trrt.Base = rt
+		return trrt
+	})
+	return config, nil
 }
 
 // newCacheForResourceAndRESTClient creates a new cache for the given ClusterResource and REST client.
@@ -649,4 +649,74 @@ func findFirstDuplicate[T any, E comparable](s []T, f func(T) E) (found bool, du
 		cns.Insert(v)
 	}
 	return false, duplicate
+}
+
+// tokenRefreshRoundTripper is an http.RoundTripper that automatically refreshes the Bearer token for a service account when it is about to expire.
+type tokenRefreshRoundTripper struct {
+	Base           http.RoundTripper
+	ServiceAccount types.NamespacedName
+	CoreV1Service  clientcorev1.CoreV1Interface
+
+	// tokenMux protects the token and tokenExpiration fields.
+	tokenMux        sync.RWMutex
+	tokenExpiration time.Time
+	token           string
+}
+
+// RoundTrip implements the http.RoundTripper interface.
+// If the token is expiring within an hour, it is refreshed before making the request.
+func (t *tokenRefreshRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	t.tokenMux.RLock()
+
+	if t.tokenNeedsRefresh() {
+		if err := t.refreshTokenReadLocked(req.Context()); err != nil {
+			t.tokenMux.RUnlock()
+			return nil, fmt.Errorf("failed to refresh token: %w", err)
+		}
+	}
+
+	req = req.Clone(req.Context())
+	req.Header.Set("Authorization", "Bearer "+t.token)
+
+	t.tokenMux.RUnlock()
+	return t.Base.RoundTrip(req)
+}
+
+// TriggerRefresh triggers a token refresh out of band.
+func (t *tokenRefreshRoundTripper) TriggerRefresh(ctx context.Context) error {
+	t.tokenMux.RLock()
+	defer t.tokenMux.RUnlock()
+
+	return t.refreshTokenReadLocked(ctx)
+}
+
+// refreshTokenReadLocked refreshes the token if it is expiring within an hour.
+// The tokenMux must be held for reading when calling this function.
+// The tokenMux will be upgraded to a write lock while refreshing the token and downgraded back to a read lock before returning.
+func (t *tokenRefreshRoundTripper) refreshTokenReadLocked(ctx context.Context) error {
+	t.tokenMux.RUnlock()
+	t.tokenMux.Lock()
+	defer t.tokenMux.RLock()
+	defer t.tokenMux.Unlock()
+
+	if !t.tokenNeedsRefresh() {
+		return nil
+	}
+
+	token, err := t.CoreV1Service.ServiceAccounts(t.ServiceAccount.Namespace).CreateToken(ctx, t.ServiceAccount.Name, &authv1.TokenRequest{
+		Spec: authv1.TokenRequestSpec{
+			ExpirationSeconds: new(int64(60 * 60 * 24)), // 24 hours
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get JWT token for service account %q: %w", t.ServiceAccount, err)
+	}
+
+	t.token = token.Status.Token
+	t.tokenExpiration = token.Status.ExpirationTimestamp.Time
+	return nil
+}
+
+func (t *tokenRefreshRoundTripper) tokenNeedsRefresh() bool {
+	return time.Until(t.tokenExpiration) < time.Hour
 }
