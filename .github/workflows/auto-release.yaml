@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Create new tag
-        uses: projectsyn/pr-label-tag-action@v1
+        uses: projectsyn/pr-label-tag-action@796e1eaeafa4de313848e03bd5341d55a08a596d # v1
         with:
           trigger: |
             Release
