@@ -25,11 +25,17 @@
     },
     {
       "matchManagers": ["npm"],
-      "groupName": "landing page nodejs dependencies"
+      "groupName": "landing page nodejs dependencies",
+      "minimumReleaseAge": "7 days",
+      "prCreation": "not-pending",
+      "internalChecksFilter": "strict"
     },
     {
       "matchManagers": ["github-actions"],
-      "groupName": "github actions dependencies"
+      "groupName": "github actions dependencies",
+      "minimumReleaseAge": "7 days",
+      "prCreation": "not-pending",
+      "internalChecksFilter": "strict"
     }
   ]
 }
