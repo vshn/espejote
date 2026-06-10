@@ -1,0 +1,35 @@
+---
+name: Check for Vulnerabilities
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "0 9 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  check-for-vulnerabilities:
+    name: Check for Vulnerabilities
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck and save to file
+        run: govulncheck -format sarif ./... > govulncheck.sarif
+        env:
+          GOEXPERIMENT: jsonv2
+
+      - name: Upload SARIF File
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          sarif_file: govulncheck.sarif
+          category: govulncheck
