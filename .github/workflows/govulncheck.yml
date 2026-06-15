@@ -2,6 +2,9 @@
 name: Check for Vulnerabilities
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
