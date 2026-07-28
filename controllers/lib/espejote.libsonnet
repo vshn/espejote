@@ -3,6 +3,7 @@ local d = import 'github.com/jsonnet-libs/docsonnet/doc-util/main.libsonnet';
 local context = std.extVar('__internal_use_espejote_lib_context');
 local trigger = std.extVar('__internal_use_espejote_lib_trigger');
 local admissionRequest = std.extVar('__internal_use_espejote_lib_admissionrequest');
+local admissionNamespaceObject = std.extVar('__internal_use_espejote_lib_namespace');
 
 local admission = {
   '#admissionRequest': d.fn(
@@ -121,6 +122,14 @@ local admission = {
     |||,
   ),
   admissionRequest: function() admissionRequest,
+
+  '#namespaceObject': d.fn(
+    |||
+      `namespaceObject` allows access to the namespace object that the incoming object belongs to. The value is null for cluster-scoped resources.
+      Reference: https://pkg.go.dev/k8s.io/api/core/v1#Namespace
+    |||,
+  ),
+  namespaceObject: function() admissionNamespaceObject,
 
   '#allowed': d.fn(
     |||

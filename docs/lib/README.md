@@ -25,6 +25,7 @@ local espejote = import "espejote.libsonnet"
     * [`fn assertPatch(msg, obj='#admissionRequest().object')`](#fn-alphaadmissionassertpatch)
     * [`fn denied(msg='')`](#fn-alphaadmissiondenied)
     * [`fn jsonPatchOp(op, path, value)`](#fn-alphaadmissionjsonpatchop)
+    * [`fn namespaceObject()`](#fn-alphaadmissionnamespaceobject)
     * [`fn patched(msg, patches)`](#fn-alphaadmissionpatched)
 
 ## Fields
@@ -355,6 +356,16 @@ jsonPatchOp(op, path, value)
 The operation is one of: add, remove, replace, move, copy, test.
 The path is a JSON pointer to the location in the object to apply the operation.
 The value is the value to set for add and replace operations.
+
+
+### fn ALPHA.admission.namespaceObject
+
+```ts
+namespaceObject()
+```
+
+`namespaceObject` allows access to the namespace object that the incoming object belongs to. The value is null for cluster-scoped resources.
+Reference: https://pkg.go.dev/k8s.io/api/core/v1#Namespace
 
 
 ### fn ALPHA.admission.patched

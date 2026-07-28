@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-jsonnet/ast"
 	"github.com/prometheus/client_golang/prometheus"
 	"gomodules.xyz/jsonpatch/v2"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,6 +44,7 @@ func init() {
 
 //+kubebuilder:rbac:groups=espejote.io,resources=admissions,verbs=get;list;watch
 //+kubebuilder:rbac:groups=espejote.io,resources=jsonnetlibraries,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 type pathContextKey struct{}
 
@@ -138,6 +140,19 @@ func (h *handler) handle(ctx context.Context, admissionKey types.NamespacedName,
 		return admission.Errored(http.StatusInternalServerError, fmt.Errorf("failed to marshal request: %w", err))
 	}
 	jvm.ExtCode("__internal_use_espejote_lib_admissionrequest", string(reqJson))
+	if req.Namespace != "" {
+		var ns corev1.Namespace
+		if err := h.Client.Get(ctx, types.NamespacedName{Name: req.Namespace}, &ns); err != nil {
+			return admission.Errored(http.StatusInternalServerError, fmt.Errorf("failed to get namespace: %w", err))
+		}
+		nsJson, err := json.Marshal(ns)
+		if err != nil {
+			return admission.Errored(http.StatusInternalServerError, fmt.Errorf("failed to marshal namespace: %w", err))
+		}
+		jvm.ExtCode("__internal_use_espejote_lib_namespace", string(nsJson))
+	} else {
+		jvm.ExtCode("__internal_use_espejote_lib_namespace", `null`)
+	}
 
 	ret, err := jvm.EvaluateAnonymousSnippet("admission", admTemplate)
 	if err != nil {

@@ -5,7 +5,7 @@ metadata:
   name: mutating-admission
   annotations:
     description: |
-      Adds the annotation `creator` for ConfigMap create requests.
+      Adds the annotation `creator` for ConfigMap create requests and copies the `environment` annotation from the namespace to the ConfigMap.
 spec:
   mutating: true
   webhookConfiguration:
@@ -19,15 +19,17 @@ spec:
     local admission = esp.ALPHA.admission;
 
     local user = admission.admissionRequest().userInfo.username;
+    local environment = admission.namespaceObject().metadata.annotations.environment;
     local obj = admission.admissionRequest().object;
 
     if std.get(obj.metadata, 'annotations') == null then
       admission.patched('added user annotation', admission.assertPatch([
-        admission.jsonPatchOp('add', '/metadata/annotations', { 'creator': user }),
+        admission.jsonPatchOp('add', '/metadata/annotations', { 'creator': user, 'environment': environment }),
       ]))
     else
       admission.patched('added user annotation', admission.assertPatch([
         admission.jsonPatchOp('add', '/metadata/annotations/creator', user),
+        admission.jsonPatchOp('add', '/metadata/annotations/environment', environment),
       ]))
 ---
 apiVersion: espejote.io/v1alpha1

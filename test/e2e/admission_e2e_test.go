@@ -45,6 +45,7 @@ metadata:
 		require.NoError(t, json.Unmarshal(out.Bytes(), &createdCM))
 		require.NotEmpty(t, createdCM.ObjectMeta.Annotations)
 		require.NotEmpty(t, createdCM.ObjectMeta.Annotations["creator"])
+		require.Equal(t, "e2e-test", createdCM.ObjectMeta.Annotations["environment"])
 	}, 1*time.Minute, 100*time.Microsecond, "Waiting for webhook to become ready and installed")
 
 	suite.T().Log("Creating subject cm...")
