@@ -226,6 +226,8 @@ apiVersion: v1
 kind: Namespace
 metadata:
   generateName: espejote-e2e-
+  annotations:
+    environment: e2e-test
 `)
 	return strings.TrimSpace(requireRun(t, cmd))
 }

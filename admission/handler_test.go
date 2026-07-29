@@ -82,14 +82,25 @@ func Test_Handler_ClusterAdmissionNotFound(t *testing.T) {
 func Test_Handler_Allowed(t *testing.T) {
 	t.Parallel()
 
-	c := buildFakeClient(t, &espejotev1alpha1.Admission{
+	const targetNamespace = "target-namespace"
+
+	c := buildFakeClient(t, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: targetNamespace,
+			Annotations: map[string]string{
+				"breadcrumb": "test",
+			},
+		},
+	}, &espejotev1alpha1.Admission{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test",
-			Namespace: "default",
+			Namespace: targetNamespace,
 		},
 		Spec: espejotev1alpha1.AdmissionSpec{
 			Template: `
 			local esp = import 'espejote.libsonnet';
+
+			assert esp.ALPHA.admission.namespaceObject().metadata.annotations.breadcrumb == "test";
 
 			esp.ALPHA.admission.allowed("Nice job!")
 `,
@@ -100,8 +111,9 @@ func Test_Handler_Allowed(t *testing.T) {
 	require.NotNil(t, subject)
 
 	w := httptest.NewRecorder()
-	req := newAdmissionRequest(t, "test", "default", admissionv1.AdmissionRequest{
-		UID: "test",
+	req := newAdmissionRequest(t, "test", targetNamespace, admissionv1.AdmissionRequest{
+		UID:       "test",
+		Namespace: targetNamespace,
 	})
 	subject.ServeHTTP(w, req)
 	res := w.Result()
@@ -127,6 +139,8 @@ func Test_Handler_Allowed_ClusterScoped(t *testing.T) {
 		Spec: espejotev1alpha1.ClusterAdmissionSpec{
 			Template: `
 			local esp = import 'espejote.libsonnet';
+
+			assert esp.ALPHA.admission.namespaceObject() == null;
 
 			esp.ALPHA.admission.allowed("Nice job!")
 `,
