@@ -14,6 +14,18 @@ JSONNETUNIT.describe(
     JSONNETUNIT.expect(errors.err('something went wrong').match(err=function(msg) msg)).to.equal('something went wrong')
   )
 ).describe(
+  'fromTuple',
+  JSONNETUNIT.it(
+    'should create an ok result from a tuple with null error',
+    JSONNETUNIT.expect(errors.fromTuple([42, null]).unwrap()).to.equal(42)
+  ).it(
+    'should create an err result from a tuple with an error',
+    JSONNETUNIT.expect(errors.fromTuple([42, 'something went wrong']).match(err=function(msg) msg)).to.equal('something went wrong')
+  ).it(
+    "SKIPPED - can't currently be tested as jsonnet aborts immediately on error - should throw an error if tuple length is not 2",
+    JSONNETUNIT.expect(true).to.be['true']
+  )
+).describe(
   'unwrap',
   JSONNETUNIT.it(
     'should unwrap an ok result',
