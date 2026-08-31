@@ -6,7 +6,7 @@ require (
 	github.com/DmitriyVTitov/size v1.5.0
 	github.com/evanphx/json-patch/v5 v5.9.11
 	github.com/fatih/color v1.19.0
-	github.com/go-logr/logr v1.4.3
+	github.com/go-logr/logr v1.4.4
 	github.com/google/go-jsonnet v0.22.0
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/prometheus/client_golang v1.23.2
