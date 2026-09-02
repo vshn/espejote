@@ -12,7 +12,11 @@ custom_css: []
 images: ["/img/social-share.png"]
 
 github:
-  repo_url: "https://github.com/vshn/espejote/blob/main"
+  # Must point at the directory that contains content/, not at the repository
+  # root: the theme builds the edit link as `<repo_url>/content/<lang>/<page>`.
+  # The Hugo site lives under website/, so without that segment every "Edit
+  # this page on GitHub" link 404s.
+  repo_url: "https://github.com/vshn/espejote/blob/main/website"
   show_edit_link: true
 
 social_links:
