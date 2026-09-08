@@ -23,7 +23,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -298,8 +297,7 @@ func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, req 
 
 	errType := "ReconcileError"
 	transient := false
-	var espejoteErr EspejoteError
-	if errors.As(recErr, &espejoteErr) {
+	if espejoteErr, ok := errors.AsType[EspejoteError](recErr); ok {
 		errType = string(espejoteErr.Type)
 		transient = espejoteErr.Transient()
 	}
@@ -477,7 +475,7 @@ func (r *ManagedResourceReconciler) uncachedClientForManagedResource(ctx context
 func (r *ManagedResourceReconciler) jwtTokenForSA(ctx context.Context, namespace, name string) (string, error) {
 	treq, err := r.clientset.CoreV1().ServiceAccounts(namespace).CreateToken(ctx, name, &authv1.TokenRequest{
 		Spec: authv1.TokenRequestSpec{
-			ExpirationSeconds: ptr.To(int64(60 * 60 * 24 * 365)), // 1 year
+			ExpirationSeconds: new(int64(60 * 60 * 24 * 365)), // 1 year
 		},
 	}, metav1.CreateOptions{})
 	if err != nil {

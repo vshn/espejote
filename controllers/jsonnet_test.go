@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -19,10 +18,8 @@ func Test_ManifestImporter_Import_NoLocalNamespace(t *testing.T) {
 		WithScheme(scheme).
 		WithObjects(
 			&espejotev1alpha1.JsonnetLibrary{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "shared",
-					Namespace: "lib-ns",
-				},
+				Name:      "shared",
+				Namespace: "lib-ns",
 				Spec: espejotev1alpha1.JsonnetLibrarySpec{
 					Data: map[string]string{
 						"test.libsonnet": `{}`,

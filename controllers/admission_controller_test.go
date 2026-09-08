@@ -56,10 +56,8 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 	testns := testutil.TmpNamespace(t, c)
 
 	val := espejotev1alpha1.Admission{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "val",
-			Namespace: testns,
-		},
+		Name:      "val",
+		Namespace: testns,
 		Spec: espejotev1alpha1.AdmissionSpec{
 			Mutating: false,
 			WebhookConfiguration: espejotev1alpha1.WebhookConfiguration{
@@ -68,12 +66,10 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 						Operations: []admissionregistrationv1.OperationType{
 							admissionregistrationv1.Create,
 						},
-						Rule: admissionregistrationv1.Rule{
-							Scope:       ptr.To(admissionregistrationv1.AllScopes),
-							APIGroups:   []string{"*"},
-							APIVersions: []string{"*"},
-							Resources:   []string{"*"},
-						},
+						Scope:       ptr.To(admissionregistrationv1.AllScopes),
+						APIGroups:   []string{"*"},
+						APIVersions: []string{"*"},
+						Resources:   []string{"*"},
 					},
 				},
 			},
@@ -81,10 +77,8 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, &val))
 	val2 := espejotev1alpha1.Admission{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "zz-val",
-			Namespace: testns,
-		},
+		Name:      "zz-val",
+		Namespace: testns,
 		Spec: espejotev1alpha1.AdmissionSpec{
 			Mutating:             false,
 			WebhookConfiguration: *val.Spec.WebhookConfiguration.DeepCopy(),
@@ -92,10 +86,8 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, &val2))
 	mut := espejotev1alpha1.Admission{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "mut",
-			Namespace: testns,
-		},
+		Name:      "mut",
+		Namespace: testns,
 		Spec: espejotev1alpha1.AdmissionSpec{
 			Mutating:             true,
 			WebhookConfiguration: *val.Spec.WebhookConfiguration.DeepCopy(),
@@ -104,15 +96,11 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 	require.NoError(t, c.Create(ctx, &mut))
 
 	require.NoError(t, c.Create(ctx, &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "zz-" + testns,
-		},
+		Name: "zz-" + testns,
 	}))
 	mut2 := espejotev1alpha1.Admission{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "mut",
-			Namespace: "zz-" + testns,
-		},
+		Name:      "mut",
+		Namespace: "zz-" + testns,
 		Spec: espejotev1alpha1.AdmissionSpec{
 			Mutating:             true,
 			WebhookConfiguration: *val.Spec.WebhookConfiguration.DeepCopy(),
@@ -121,9 +109,7 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 	require.NoError(t, c.Create(ctx, &mut2))
 
 	clusterVal := espejotev1alpha1.ClusterAdmission{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "val-" + testns,
-		},
+		Name: "val-" + testns,
 		Spec: espejotev1alpha1.ClusterAdmissionSpec{
 			Mutating: false,
 			WebhookConfiguration: espejotev1alpha1.WebhookConfigurationWithNamespaceSelector{
@@ -143,9 +129,7 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 	require.NoError(t, c.Create(ctx, &clusterVal))
 
 	clusterVal2 := espejotev1alpha1.ClusterAdmission{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "zz-val-" + testns,
-		},
+		Name: "zz-val-" + testns,
 		Spec: espejotev1alpha1.ClusterAdmissionSpec{
 			Mutating:             false,
 			WebhookConfiguration: *clusterVal.Spec.WebhookConfiguration.DeepCopy(),
@@ -154,9 +138,7 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 	require.NoError(t, c.Create(ctx, &clusterVal2))
 
 	clusterMut := espejotev1alpha1.ClusterAdmission{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "mut-" + testns,
-		},
+		Name: "mut-" + testns,
 		Spec: espejotev1alpha1.ClusterAdmissionSpec{
 			Mutating:             true,
 			WebhookConfiguration: *clusterVal.Spec.WebhookConfiguration.DeepCopy(),
@@ -165,9 +147,7 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 	require.NoError(t, c.Create(ctx, &clusterMut))
 
 	clusterMut2 := espejotev1alpha1.ClusterAdmission{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "zz-mut-" + testns,
-		},
+		Name: "zz-mut-" + testns,
 		Spec: espejotev1alpha1.ClusterAdmissionSpec{
 			Mutating:             true,
 			WebhookConfiguration: *clusterVal.Spec.WebhookConfiguration.DeepCopy(),
@@ -190,7 +170,7 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 		c := mutwebhook.Webhooks[0]
 		assert.Equal(t, "system", c.ClientConfig.Service.Namespace)
 		assert.Equal(t, strings.Join([]string{"/dynamic", mut.Namespace, mut.Name}, "/"), *c.ClientConfig.Service.Path)
-		assert.Equal(t, ptr.To(int32(subject.WebhookPort)), c.ClientConfig.Service.Port)
+		assert.Equal(t, new(int32(subject.WebhookPort)), c.ClientConfig.Service.Port)
 		assert.Equal(t, map[string]string{"kubernetes.io/metadata.name": testns}, c.NamespaceSelector.MatchLabels)
 		if assert.Len(t, c.Rules, 1) {
 			assert.Equal(t, ptr.To(admissionregistrationv1.NamespacedScope), c.Rules[0].Scope, "scope should be Namespaced for namespaced admission")
@@ -200,7 +180,7 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 		c := mutwebhook.Webhooks[2]
 		assert.Equal(t, "system", c.ClientConfig.Service.Namespace)
 		assert.Equal(t, strings.Join([]string{"/dynamic-cluster", clusterMut.Name}, "/"), *c.ClientConfig.Service.Path)
-		assert.Equal(t, ptr.To(int32(subject.WebhookPort)), c.ClientConfig.Service.Port)
+		assert.Equal(t, new(int32(subject.WebhookPort)), c.ClientConfig.Service.Port)
 		assert.Equal(t, &metav1.LabelSelector{
 			MatchExpressions: []metav1.LabelSelectorRequirement{
 				{
@@ -230,7 +210,7 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 		c := valwebhook.Webhooks[0]
 		assert.Equal(t, "system", c.ClientConfig.Service.Namespace)
 		assert.Equal(t, strings.Join([]string{"/dynamic", val.Namespace, val.Name}, "/"), *c.ClientConfig.Service.Path)
-		assert.Equal(t, ptr.To(int32(subject.WebhookPort)), c.ClientConfig.Service.Port)
+		assert.Equal(t, new(int32(subject.WebhookPort)), c.ClientConfig.Service.Port)
 		assert.Equal(t, map[string]string{"kubernetes.io/metadata.name": testns}, c.NamespaceSelector.MatchLabels)
 		if assert.Len(t, c.Rules, 1) {
 			assert.Equal(t, ptr.To(admissionregistrationv1.NamespacedScope), c.Rules[0].Scope, "scope should be Namespaced for namespaced admission")
@@ -240,7 +220,7 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 		c := valwebhook.Webhooks[2]
 		assert.Equal(t, "system", c.ClientConfig.Service.Namespace)
 		assert.Equal(t, strings.Join([]string{"/dynamic-cluster", clusterVal.Name}, "/"), *c.ClientConfig.Service.Path)
-		assert.Equal(t, ptr.To(int32(subject.WebhookPort)), c.ClientConfig.Service.Port)
+		assert.Equal(t, new(int32(subject.WebhookPort)), c.ClientConfig.Service.Port)
 		assert.Equal(t, &metav1.LabelSelector{
 			MatchExpressions: []metav1.LabelSelectorRequirement{
 				{
@@ -267,9 +247,7 @@ func Test_AdmissionReconciler_Reconcile(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 
 	require.NoError(t, c.Delete(ctx, &admissionregistrationv1.ValidatingWebhookConfiguration{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: webhookName,
-		},
+		Name: webhookName,
 	}))
 
 	require.EventuallyWithT(t, func(t *assert.CollectT) {

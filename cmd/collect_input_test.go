@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vshn/espejote/testutil"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
@@ -40,11 +39,9 @@ func Test_runCollectInput(t *testing.T) {
 
 			for i := range 10 {
 				cm := &corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      fmt.Sprintf("test-%d", i),
-						Namespace: testns,
-						Labels:    map[string]string{},
-					},
+					Name:      fmt.Sprintf("test-%d", i),
+					Namespace: testns,
+					Labels:    map[string]string{},
 				}
 				if i%2 != 0 {
 					cm.Labels["odd"] = "true"
@@ -52,10 +49,8 @@ func Test_runCollectInput(t *testing.T) {
 				require.NoError(t, cli.Create(t.Context(), cm))
 			}
 			lib := &espejotev1alpha1.JsonnetLibrary{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "jsonnetlibrary-sample",
-					Namespace: testns,
-				},
+				Name:      "jsonnetlibrary-sample",
+				Namespace: testns,
 				Spec: espejotev1alpha1.JsonnetLibrarySpec{
 					Data: map[string]string{
 						"sample.libsonnet": `import "relrel.libsonnet"`,

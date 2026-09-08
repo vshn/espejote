@@ -158,8 +158,7 @@ func (r *ManagedResourceControllerManager) Reconcile(ctx context.Context, req re
 func (r *ManagedResourceControllerManager) recordErr(ctx context.Context, err error, defaultErrType string, managedResource espejotev1alpha1.ManagedResource, req reconcile.Request) error {
 	errType := defaultErrType
 
-	var espejoteErr EspejoteError
-	if errors.As(err, &espejoteErr) {
+	if espejoteErr, ok := errors.AsType[EspejoteError](err); ok {
 		errType = string(espejoteErr.Type)
 	}
 
@@ -231,7 +230,7 @@ func (r *ManagedResourceControllerManager) ensureInstanceControllerFor(ctx conte
 			// to fix this nicely. This is quite annoying because you need to override
 			// the new workqueue function. Don't currently see the problem with just
 			// reusing the same metrics on recreate.
-			SkipNameValidation: ptr.To(true),
+			SkipNameValidation: new(true),
 			Reconciler:         reconciler,
 			Logger:             r.logger,
 			CacheSyncTimeout:   mr.Spec.CacheSyncTimeout.Duration,
@@ -495,7 +494,7 @@ func (r *ManagedResourceControllerManager) newCacheForResourceAndRESTClient(ctx 
 		DefaultLabelSelector:        lblSel,
 		// We don't want to deep copy the objects, as we don't modify them
 		// This is mostly to make metric collection more efficient
-		DefaultUnsafeDisableDeepCopy: ptr.To(true),
+		DefaultUnsafeDisableDeepCopy: new(true),
 
 		DefaultTransform: transformFunc,
 

@@ -90,8 +90,8 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ admissionRequest)
 				Service: &admissionregistrationv1.ServiceReference{
 					Name:      r.WebhookServiceName,
 					Namespace: r.ControllerNamespace,
-					Path:      ptr.To(path.Join("/dynamic", admission.Namespace, admission.Name)),
-					Port:      ptr.To(r.WebhookPort),
+					Path:      new(path.Join("/dynamic", admission.Namespace, admission.Name)),
+					Port:      new(r.WebhookPort),
 				},
 			},
 			NamespaceSelector: &metav1.LabelSelector{
@@ -118,8 +118,8 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ admissionRequest)
 				Service: &admissionregistrationv1.ServiceReference{
 					Name:      r.WebhookServiceName,
 					Namespace: r.ControllerNamespace,
-					Path:      ptr.To(path.Join("/dynamic-cluster", admission.Name)),
-					Port:      ptr.To(r.WebhookPort),
+					Path:      new(path.Join("/dynamic-cluster", admission.Name)),
+					Port:      new(r.WebhookPort),
 				},
 			},
 
@@ -151,8 +151,8 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ admissionRequest)
 				Service: &admissionregistrationv1.ServiceReference{
 					Name:      r.WebhookServiceName,
 					Namespace: r.ControllerNamespace,
-					Path:      ptr.To(path.Join("/dynamic", admission.Namespace, admission.Name)),
-					Port:      ptr.To(r.WebhookPort),
+					Path:      new(path.Join("/dynamic", admission.Namespace, admission.Name)),
+					Port:      new(r.WebhookPort),
 				},
 			},
 			NamespaceSelector: &metav1.LabelSelector{
@@ -178,8 +178,8 @@ func (r *AdmissionReconciler) Reconcile(ctx context.Context, _ admissionRequest)
 				Service: &admissionregistrationv1.ServiceReference{
 					Name:      r.WebhookServiceName,
 					Namespace: r.ControllerNamespace,
-					Path:      ptr.To(path.Join("/dynamic-cluster", admission.Name)),
-					Port:      ptr.To(r.WebhookPort),
+					Path:      new(path.Join("/dynamic-cluster", admission.Name)),
+					Port:      new(r.WebhookPort),
 				},
 			},
 

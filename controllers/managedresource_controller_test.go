@@ -28,7 +28,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -108,16 +107,12 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		testns := testutil.TmpNamespace(t, c)
 
 		jsonnetLibNs := &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: subject.JsonnetLibraryNamespace,
-			},
+			Name: subject.JsonnetLibraryNamespace,
 		}
 		require.NoError(t, c.Create(ctx, jsonnetLibNs))
 		jsonnetLib := &espejotev1alpha1.JsonnetLibrary{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: subject.JsonnetLibraryNamespace,
-			},
+			Name:      "test",
+			Namespace: subject.JsonnetLibraryNamespace,
 			Spec: espejotev1alpha1.JsonnetLibrarySpec{
 				Data: map[string]string{
 					"test.jsonnet":       `import "dotrel.jsonnet"`,
@@ -130,10 +125,8 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		}
 		require.NoError(t, c.Create(ctx, jsonnetLib))
 		jsonnetLib2 := &espejotev1alpha1.JsonnetLibrary{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test2",
-				Namespace: subject.JsonnetLibraryNamespace,
-			},
+			Name:      "test2",
+			Namespace: subject.JsonnetLibraryNamespace,
 			Spec: espejotev1alpha1.JsonnetLibrarySpec{
 				Data: map[string]string{
 					"test.jsonnet":   `import "relrel.jsonnet"`,
@@ -144,10 +137,8 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		}
 		require.NoError(t, c.Create(ctx, jsonnetLib2))
 		localJsonnetLib := &espejotev1alpha1.JsonnetLibrary{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.JsonnetLibrarySpec{
 				Data: map[string]string{
 					"test.jsonnet":   `import "relrel.jsonnet"`,
@@ -158,10 +149,8 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		}
 		require.NoError(t, c.Create(ctx, localJsonnetLib))
 		localJsonnetLib2 := &espejotev1alpha1.JsonnetLibrary{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test2",
-				Namespace: testns,
-			},
+			Name:      "test2",
+			Namespace: testns,
 			Spec: espejotev1alpha1.JsonnetLibrarySpec{
 				Data: map[string]string{
 					"test.jsonnet":   `import "relrel.jsonnet"`,
@@ -173,10 +162,8 @@ func Test_ManagedResourceReconciler_Reconcile(t *testing.T) {
 		require.NoError(t, c.Create(ctx, localJsonnetLib2))
 
 		res := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
 					{
@@ -212,9 +199,7 @@ if esp.triggerName() == "ns" then [{
 		require.NoError(t, c.Create(ctx, res))
 
 		ns := &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: testns + "-2",
-			},
+			Name: testns + "-2",
 		}
 		require.NoError(t, c.Create(ctx, ns))
 
@@ -232,10 +217,8 @@ if esp.triggerName() == "ns" then [{
 		testns := testutil.TmpNamespace(t, c)
 
 		otherCM := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "other",
-				Namespace: testns,
-			},
+			Name:      "other",
+			Namespace: testns,
 			Data: map[string]string{
 				"test": "test",
 			},
@@ -243,10 +226,8 @@ if esp.triggerName() == "ns" then [{
 		require.NoError(t, c.Create(ctx, otherCM))
 
 		res := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Context: []espejotev1alpha1.ManagedResourceContext{{
 					Name: "configmap",
@@ -304,10 +285,8 @@ if esp.triggerName() == "ns" then [{
 		testns := testutil.TmpNamespace(t, c)
 
 		res := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Context: []espejotev1alpha1.ManagedResourceContext{{
 					Name: "configmaps",
@@ -355,10 +334,8 @@ local trigger = esp.triggerData();
 
 		for i := range 3 {
 			cm := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test" + strconv.Itoa(i),
-					Namespace: testns,
-				},
+				Name:      "test" + strconv.Itoa(i),
+				Namespace: testns,
 			}
 			require.NoError(t, c.Create(ctx, cm))
 		}
@@ -379,19 +356,15 @@ local trigger = esp.triggerData();
 
 		for i := range 500 {
 			cm := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test" + strconv.Itoa(i),
-					Namespace: testns,
-				},
+				Name:      "test" + strconv.Itoa(i),
+				Namespace: testns,
 			}
 			require.NoError(t, c.Create(ctx, cm))
 		}
 
 		res := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Context: []espejotev1alpha1.ManagedResourceContext{{
 					Name: "cms",
@@ -427,7 +400,7 @@ local cms = esp.context()["cms"];
 			var cms []string
 			require.NoError(t, json.Unmarshal([]byte(cm.Data["cms"]), &cms))
 			expected := make([]string, 0, 500)
-			for i := 0; i < 500; i++ {
+			for i := range 500 {
 				if i == 1 || i == 3 {
 					continue
 				}
@@ -494,19 +467,15 @@ local cms = esp.context()["cms"];
 
 		for i := range 3 {
 			cm := &networkingv1.NetworkPolicy{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test" + strconv.Itoa(i),
-					Namespace: testns,
-				},
+				Name:      "test" + strconv.Itoa(i),
+				Namespace: testns,
 			}
 			require.NoError(t, c.Create(ctx, cm))
 		}
 
 		res := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Context: []espejotev1alpha1.ManagedResourceContext{{
 					Name: "netpols",
@@ -551,10 +520,8 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Template: `[null, {apiVersion: "v1", kind: "ConfigMap", metadata: {name: "test"}} , null]`,
 			},
@@ -576,10 +543,8 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Template: `glug`,
 			},
@@ -602,10 +567,8 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Template: `glug`,
 				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
@@ -622,10 +585,8 @@ local netpols = esp.context().netpols;
 		require.NoError(t, c.Create(ctx, mr))
 
 		cm := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "trigger",
-				Namespace: testns,
-			},
+			Name:      "trigger",
+			Namespace: testns,
 		}
 		require.NoError(t, c.Create(ctx, cm))
 
@@ -651,10 +612,8 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Context: []espejotev1alpha1.ManagedResourceContext{
 					{Name: "test"},
@@ -691,10 +650,8 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
 					{Name: "test"},
@@ -731,10 +688,8 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Template: `[]`,
 				ServiceAccountRef: corev1.LocalObjectReference{
@@ -770,10 +725,8 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Template: `"glug"`,
 			},
@@ -796,10 +749,8 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Template: `{apiVersion: "v1", kind: "DoesNotExist"}`,
 			},
@@ -822,10 +773,8 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
 					{
@@ -867,14 +816,10 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		cmToPatch := &corev1.ConfigMap{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: "v1",
-				Kind:       "ConfigMap",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			APIVersion: "v1",
+			Kind:       "ConfigMap",
+			Name:       "test",
+			Namespace:  testns,
 			Data: map[string]string{
 				"test": "test",
 			},
@@ -883,10 +828,8 @@ local netpols = esp.context().netpols;
 		require.NoError(t, c.Patch(ctx, cmToPatch, client.Apply, client.FieldOwner(origOwner)))
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Template: `{
 					apiVersion: "v1",
@@ -938,14 +881,10 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		cmToPatch := &corev1.ConfigMap{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: "v1",
-				Kind:       "ConfigMap",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			APIVersion: "v1",
+			Kind:       "ConfigMap",
+			Name:       "test",
+			Namespace:  testns,
 			Data: map[string]string{
 				"test": "test",
 			},
@@ -954,10 +893,8 @@ local netpols = esp.context().netpols;
 		require.NoError(t, c.Patch(ctx, cmToPatch, client.Apply, client.FieldOwner(origOwner)))
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Template: `{
 					apiVersion: "v1",
@@ -1019,14 +956,10 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		cmToPatch := &corev1.ConfigMap{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: "v1",
-				Kind:       "ConfigMap",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			APIVersion: "v1",
+			Kind:       "ConfigMap",
+			Name:       "test",
+			Namespace:  testns,
 			Data: map[string]string{
 				"test": "test",
 			},
@@ -1035,10 +968,8 @@ local netpols = esp.context().netpols;
 		require.NoError(t, c.Patch(ctx, cmToPatch, client.Apply, client.FieldOwner(origOwner)))
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Template: `{
 					apiVersion: "v1",
@@ -1090,14 +1021,10 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		cmToPatch := &corev1.ConfigMap{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: "v1",
-				Kind:       "ConfigMap",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			APIVersion: "v1",
+			Kind:       "ConfigMap",
+			Name:       "test",
+			Namespace:  testns,
 			Data: map[string]string{
 				"test": "test",
 			},
@@ -1106,10 +1033,8 @@ local netpols = esp.context().netpols;
 		require.NoError(t, c.Patch(ctx, cmToPatch, client.Apply, client.FieldOwner(origOwner)))
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Template: `{
 					apiVersion: "v1",
@@ -1171,10 +1096,8 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Template: `[
 					{
@@ -1226,10 +1149,8 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Template: `{
 					apiVersion: "v1",
@@ -1277,10 +1198,8 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Template: `{
 					apiVersion: "v1",
@@ -1338,23 +1257,17 @@ local netpols = esp.context().netpols;
 		testns := testutil.TmpNamespace(t, c)
 
 		cmToPatch := &corev1.ConfigMap{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: "v1",
-				Kind:       "ConfigMap",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
-			Data: map[string]string{},
+			APIVersion: "v1",
+			Kind:       "ConfigMap",
+			Name:       "test",
+			Namespace:  testns,
+			Data:       map[string]string{},
 		}
 		require.NoError(t, c.Create(ctx, cmToPatch))
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
 					{
@@ -1457,19 +1370,15 @@ local netpols = esp.context().netpols;
 
 		for i := range 4 {
 			cm := &corev1.ConfigMap{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: "v1",
-					Kind:       "ConfigMap",
+				APIVersion: "v1",
+				Kind:       "ConfigMap",
+				Name:       "test" + strconv.Itoa(i),
+				Namespace:  testns,
+				Annotations: map[string]string{
+					"index": strconv.Itoa(i),
 				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test" + strconv.Itoa(i),
-					Namespace: testns,
-					Annotations: map[string]string{
-						"index": strconv.Itoa(i),
-					},
-					Labels: map[string]string{
-						"managed": "true",
-					},
+				Labels: map[string]string{
+					"managed": "true",
 				},
 				Data: map[string]string{
 					"test": "test",
@@ -1479,10 +1388,8 @@ local netpols = esp.context().netpols;
 		}
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Context: []espejotev1alpha1.ManagedResourceContext{{
 					Name: "cms",
@@ -1546,10 +1453,8 @@ std.map(
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				ApplyOptions: espejotev1alpha1.ApplyOptions{
 					Force: true,
@@ -1584,10 +1489,8 @@ local esp = import 'espejote.libsonnet';
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Triggers: []espejotev1alpha1.ManagedResourceTrigger{{
 					Name: "trigger",
@@ -1627,10 +1530,8 @@ if esp.triggerName() == 'trigger' then (
 		require.NoError(t, c.Create(ctx, mr))
 
 		triggerNetPol := &networkingv1.NetworkPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "trigger",
-				Namespace: testns,
-			},
+			Name:      "trigger",
+			Namespace: testns,
 		}
 		require.NoError(t, c.Create(ctx, triggerNetPol))
 
@@ -1657,14 +1558,10 @@ if esp.triggerName() == 'trigger' then (
 		testns := testutil.TmpNamespace(t, c)
 
 		contextCM := &corev1.ConfigMap{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: "v1",
-				Kind:       "ConfigMap",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "context",
-				Namespace: testns,
-			},
+			APIVersion: "v1",
+			Kind:       "ConfigMap",
+			Name:       "context",
+			Namespace:  testns,
 			Data: map[string]string{
 				"test": "test",
 			},
@@ -1672,10 +1569,8 @@ if esp.triggerName() == 'trigger' then (
 		require.NoError(t, c.Patch(ctx, contextCM, client.Apply, client.FieldOwner("test")))
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Triggers: []espejotev1alpha1.ManagedResourceTrigger{{
 					Name: "trigger",
@@ -1727,8 +1622,8 @@ if esp.triggerName() == 'trigger' then {
 		}, 5*time.Second, 100*time.Millisecond)
 
 		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
-		mr.Spec.Triggers[0].WatchResource.StripManagedFields = ptr.To(false)
-		mr.Spec.Context[0].Resource.StripManagedFields = ptr.To(false)
+		mr.Spec.Triggers[0].WatchResource.StripManagedFields = new(false)
+		mr.Spec.Context[0].Resource.StripManagedFields = new(false)
 		require.NoError(t, c.Update(ctx, mr))
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
@@ -1749,10 +1644,8 @@ if esp.triggerName() == 'trigger' then {
 
 		for i := range 100 {
 			cm := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test" + strconv.Itoa(i),
-					Namespace: testns,
-				},
+				Name:      "test" + strconv.Itoa(i),
+				Namespace: testns,
 			}
 			if i%2 == 0 {
 				cm.Labels = map[string]string{
@@ -1763,10 +1656,8 @@ if esp.triggerName() == 'trigger' then {
 		}
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Triggers: []espejotev1alpha1.ManagedResourceTrigger{{
 					Name: "matching-cms",
@@ -1807,7 +1698,7 @@ if esp.triggerName() == 'trigger' then {
 					// We still should cap it as there might be more than two reconciles because of cache wait or apply conflicts.
 					if metricHasLabelPair("namespace", testns)(m) && metricHasLabelPair("trigger", "matching-cms")(m) {
 						if m.GetCounter().GetValue() > 2 {
-							m.Counter.Value = ptr.To(float64(2))
+							m.Counter.Value = new(float64(2))
 						}
 						return true
 					}
@@ -1865,10 +1756,8 @@ espejote_cache_size_bytes{managedresource="test",name="matching-cms",namespace="
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Template: `
 local esp = import 'espejote.libsonnet';
@@ -1940,17 +1829,15 @@ local cm(name) = {
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test",
-				Namespace: testns,
-			},
+			Name:      "test",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Context: []espejotev1alpha1.ManagedResourceContext{{
 					Name: "context",
 					Resource: espejotev1alpha1.ContextResource{
 						APIVersion: "v1",
 						Kind:       "ConfigMap",
-						Namespace:  ptr.To("zzz-test-blocking"),
+						Namespace:  new("zzz-test-blocking"),
 					},
 				}},
 				Template: `null`,
@@ -1987,17 +1874,15 @@ local cm(name) = {
 		testns := testutil.TmpNamespace(t, c)
 
 		mr := &espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-error",
-				Namespace: testns,
-			},
+			Name:      "test-error",
+			Namespace: testns,
 			Spec: espejotev1alpha1.ManagedResourceSpec{
 				Context: []espejotev1alpha1.ManagedResourceContext{{
 					Name: "context",
 					Resource: espejotev1alpha1.ContextResource{
 						APIVersion: "v1",
 						Kind:       "Secret",
-						Namespace:  ptr.To("zzz-test-forbidden"),
+						Namespace:  new("zzz-test-forbidden"),
 					},
 				}},
 				CacheSyncTimeout: metav1.Duration{Duration: time.Second},

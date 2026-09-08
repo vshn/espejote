@@ -12,7 +12,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
@@ -351,7 +350,7 @@ func deleteOptionsFromRenderedObject(obj *unstructured.Unstructured) (shouldDele
 	}
 	if ok {
 		hasPreconditions = true
-		preconditions.UID = ptr.To(types.UID(preconditionUID))
+		preconditions.UID = new(types.UID(preconditionUID))
 	}
 	preconditionResourceVersion, ok, err := unstructured.NestedString(obj.UnstructuredContent(), deletionKey, "preconditionResourceVersion")
 	if err != nil {
