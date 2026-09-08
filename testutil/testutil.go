@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -50,20 +49,16 @@ func TmpNamespace(t *testing.T, c client.Client) string {
 	t.Helper()
 
 	ns := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: "espejote-test-",
-			Annotations: map[string]string{
-				"test.espejote.vshn.net/name": t.Name(),
-			},
+		GenerateName: "espejote-test-",
+		Annotations: map[string]string{
+			"test.espejote.vshn.net/name": t.Name(),
 		},
 	}
 	require.NoError(t, c.Create(t.Context(), ns))
 
 	defaultSA := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "default",
-			Namespace: ns.Name,
-		},
+		Name:      "default",
+		Namespace: ns.Name,
 	}
 	require.NoError(t, c.Create(t.Context(), defaultSA))
 

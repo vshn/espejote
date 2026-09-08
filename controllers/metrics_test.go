@@ -6,7 +6,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -19,25 +18,19 @@ import (
 func Test_ManagedResourceStatusCollector(t *testing.T) {
 	c := buildFakeClient(t,
 		&espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "empty",
-				Namespace: "default",
-			},
+			Name:      "empty",
+			Namespace: "default",
 		},
 		&espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "ready",
-				Namespace: "default",
-			},
+			Name:      "ready",
+			Namespace: "default",
 			Status: espejotev1alpha1.ManagedResourceStatus{
 				Status: "Ready",
 			},
 		},
 		&espejotev1alpha1.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "error",
-				Namespace: "default",
-			},
+			Name:      "error",
+			Namespace: "default",
 			Status: espejotev1alpha1.ManagedResourceStatus{
 				Status: "DependencyConfigurationError",
 			},
