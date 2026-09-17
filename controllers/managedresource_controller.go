@@ -5,23 +5,18 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"strings"
 	"sync/atomic"
 
 	"github.com/DmitriyVTitov/size"
 	"github.com/google/go-jsonnet"
 	"github.com/google/go-jsonnet/ast"
 	"go.uber.org/multierr"
-	authv1 "k8s.io/api/authentication/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -62,12 +57,10 @@ type ManagedResourceReconciler struct {
 	Scheme   *runtime.Scheme
 	Recorder events.EventRecorder
 
-	ControllerLifetimeCtx   context.Context
 	JsonnetLibraryNamespace string
 
-	clientset  *kubernetes.Clientset
-	restConfig *rest.Config
-	mapper     meta.RESTMapper
+	uncachedClient client.Client
+	mapper         meta.RESTMapper
 
 	cache *instanceCache
 
@@ -253,13 +246,7 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 	}
 	l.Info("Applying rendered objects", "kinds", counts)
 
-	// apply objects returned by the template
-	c, err := r.uncachedClientForManagedResource(ctx, managedResource)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to get client for managed resource: %w", err)
-	}
-
-	if err := applier.Apply(ctx, c); err != nil {
+	if err := applier.Apply(ctx, r.uncachedClient); err != nil {
 		return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to apply objects: %w", err), ApplyError)
 	}
 
@@ -453,59 +440,6 @@ func (r *Renderer) renderContexts(ctx context.Context, getReader func(string) (c
 		return nil, fmt.Errorf("failed to marshal contexts: %w", err)
 	}
 	return contextNode, nil
-}
-
-// uncachedClientForManagedResource returns a client.Client running in the context of the managed resource's service account.
-// It does not add any caches.
-// The context is used to get a JWT token for the service account and is not further used.
-func (r *ManagedResourceReconciler) uncachedClientForManagedResource(ctx context.Context, mr espejotev1alpha1.ManagedResource) (client.Client, error) {
-	rc, err := r.restConfigForManagedResource(ctx, mr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get rest config for managed resource: %w", err)
-	}
-
-	return client.New(rc, client.Options{
-		Scheme: r.Scheme,
-		Mapper: r.mapper,
-	})
-}
-
-// jwtTokenForSA returns a JWT token for the given service account.
-// The token is valid for 1 year.
-func (r *ManagedResourceReconciler) jwtTokenForSA(ctx context.Context, namespace, name string) (string, error) {
-	treq, err := r.clientset.CoreV1().ServiceAccounts(namespace).CreateToken(ctx, name, &authv1.TokenRequest{
-		Spec: authv1.TokenRequestSpec{
-			ExpirationSeconds: new(int64(60 * 60 * 24 * 365)), // 1 year
-		},
-	}, metav1.CreateOptions{})
-	if err != nil {
-		return "", newEspejoteError(fmt.Errorf("token request for %q failed: %w", strings.Join([]string{"system:serviceaccount", namespace, name}, ":"), err), ServiceAccountError)
-	}
-
-	return treq.Status.Token, nil
-}
-
-// restConfigForManagedResource returns a rest.Config for the given ManagedResource.
-// The context is used to get a JWT token for the service account and is not further used.
-// The rest.Config contains a Bearer token for the service account specified in the ManagedResource.
-// The rest.Config copies the TLSClientConfig and Host from the controller's rest.Config.
-func (r *ManagedResourceReconciler) restConfigForManagedResource(ctx context.Context, mr espejotev1alpha1.ManagedResource) (*rest.Config, error) {
-	name := mr.Spec.ServiceAccountRef.Name
-	if name == "" {
-		name = "default"
-	}
-	token, err := r.jwtTokenForSA(ctx, mr.GetNamespace(), name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get JWT token: %w", err)
-	}
-
-	// There's also a rest.CopyConfig function that could be used here
-	config := rest.Config{
-		Host:            r.restConfig.Host,
-		BearerToken:     token,
-		TLSClientConfig: *r.restConfig.TLSClientConfig.DeepCopy(),
-	}
-	return &config, nil
 }
 
 func jsonValueToJsonnetNode(v any) (ast.Node, error) {
