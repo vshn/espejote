@@ -222,14 +222,14 @@ func (r *ManagedResourceControllerManager) ensureInstanceControllerFor(ctx conte
 	reconciler := &ManagedResourceReconciler{
 		For: mrKey,
 
-		Client:   r.Client,
-		Scheme:   r.Scheme,
-		Recorder: r.Recorder,
+		controllerClient:       r.Client,
+		uncachedInstanceClient: uncachedClient,
 
-		JsonnetLibraryNamespace: r.JsonnetLibraryNamespace,
+		scheme:   r.Scheme,
+		mapper:   r.mapper,
+		recorder: r.Recorder,
 
-		uncachedClient: uncachedClient,
-		mapper:         r.mapper,
+		jsonnetLibraryNamespace: r.JsonnetLibraryNamespace,
 
 		configHash:       mrConfigHash,
 		configGeneration: mr.Generation,

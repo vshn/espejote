@@ -53,14 +53,16 @@ type ManagedResourceReconciler struct {
 	// ManagedResourceControllerManager dynamically creates and manages these reconciler instances.
 	For types.NamespacedName
 
-	client.Client
-	Scheme   *runtime.Scheme
-	Recorder events.EventRecorder
+	// controllerClient holds a client with the permissions of the controller.
+	controllerClient client.Client
+	// uncachedInstanceClient holds an uncached client with the permissions of the ManagedResource service account
+	uncachedInstanceClient client.Client
 
-	JsonnetLibraryNamespace string
+	recorder events.EventRecorder
+	scheme   *runtime.Scheme
+	mapper   meta.RESTMapper
 
-	uncachedClient client.Client
-	mapper         meta.RESTMapper
+	jsonnetLibraryNamespace string
 
 	cache *instanceCache
 
@@ -191,7 +193,7 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 	l.Info("Reconciling ManagedResource")
 
 	var managedResource espejotev1alpha1.ManagedResource
-	if err := r.Get(ctx, r.For, &managedResource); err != nil {
+	if err := r.controllerClient.Get(ctx, r.For, &managedResource); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
@@ -214,7 +216,7 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 	}
 
 	rendered, err := (&Renderer{
-		Importer:            FromClientImporter(r.Client, managedResource.GetNamespace(), r.JsonnetLibraryNamespace),
+		Importer:            FromClientImporter(r.controllerClient, managedResource.GetNamespace(), r.jsonnetLibraryNamespace),
 		TriggerClientGetter: r.cache.clientForTrigger,
 		ContextClientGetter: r.cache.clientForContext,
 	}).Render(ctx, managedResource, req.TriggerInfo)
@@ -246,7 +248,7 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 	}
 	l.Info("Applying rendered objects", "kinds", counts)
 
-	if err := applier.Apply(ctx, r.uncachedClient); err != nil {
+	if err := applier.Apply(ctx, r.uncachedInstanceClient); err != nil {
 		return ctrl.Result{}, newEspejoteError(fmt.Errorf("failed to apply objects: %w", err), ApplyError)
 	}
 
@@ -254,7 +256,7 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 }
 
 func (r *ManagedResourceReconciler) defaultNamespaceIfNamespaced(obj client.Object, namespace string) error {
-	namespaced, err := apiutil.IsObjectNamespaced(obj, r.Scheme, r.mapper)
+	namespaced, err := apiutil.IsObjectNamespaced(obj, r.scheme, r.mapper)
 	if err != nil {
 		return newEspejoteError(fmt.Errorf("failed to determine if object is namespaced: %w", err), ApplyError)
 	}
@@ -269,7 +271,7 @@ func (r *ManagedResourceReconciler) defaultNamespaceIfNamespaced(obj client.Obje
 // If the error is a transient error, it is not recorded as an event or metric.
 func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, req Request, recErr error) error {
 	var managedResource espejotev1alpha1.ManagedResource
-	if err := r.Get(ctx, r.For, &managedResource); err != nil {
+	if err := r.controllerClient.Get(ctx, r.For, &managedResource); err != nil {
 		return client.IgnoreNotFound(err)
 	}
 
@@ -279,7 +281,7 @@ func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, req 
 			return nil
 		}
 		managedResource.Status.Status = "Ready"
-		return r.Status().Update(ctx, &managedResource)
+		return r.controllerClient.Status().Update(ctx, &managedResource)
 	}
 
 	errType := "ReconcileError"
@@ -303,7 +305,7 @@ func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, req 
 			objs = append(objs, tobj)
 		}
 		for _, obj := range objs {
-			r.Recorder.Eventf(obj, nil, "Warning", errType, "Reconcile", "Reconcile error: %s", recErr.Error())
+			r.recorder.Eventf(obj, nil, "Warning", errType, "Reconcile", "Reconcile error: %s", recErr.Error())
 		}
 		reconcileErrors.WithLabelValues(r.For.Name, r.For.Namespace, req.TriggerInfo.TriggerName, errType).Inc()
 	}
@@ -313,7 +315,7 @@ func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, req 
 	}
 
 	managedResource.Status.Status = errType
-	return r.Status().Update(ctx, &managedResource)
+	return r.controllerClient.Status().Update(ctx, &managedResource)
 }
 
 // Render renders the given ManagedResource.
