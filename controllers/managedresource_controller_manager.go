@@ -205,19 +205,31 @@ func (r *ManagedResourceControllerManager) ensureInstanceControllerFor(ctx conte
 		delete(r.controllers, mrKey)
 	}
 
+	instanceRestConfig, err := r.restConfigForManagedResource(ctx, mr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rest config for managed resource: %w", err)
+	}
+
+	uncachedClient, err := client.New(instanceRestConfig, client.Options{
+		Scheme: r.Scheme,
+		Mapper: r.mapper,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup uncached client: %w", err)
+	}
+
 	instanceCtrlCtx, instanceCtrlCancel := context.WithCancel(r.ControllerLifetimeCtx)
 	reconciler := &ManagedResourceReconciler{
 		For: mrKey,
 
-		Client:   r.Client,
-		Scheme:   r.Scheme,
-		Recorder: r.Recorder,
+		controllerClient:       r.Client,
+		uncachedInstanceClient: uncachedClient,
 
-		JsonnetLibraryNamespace: r.JsonnetLibraryNamespace,
+		scheme:   r.Scheme,
+		mapper:   r.mapper,
+		recorder: r.Recorder,
 
-		clientset:  r.clientset,
-		restConfig: r.restConfig,
-		mapper:     r.mapper,
+		jsonnetLibraryNamespace: r.JsonnetLibraryNamespace,
 
 		configHash:       mrConfigHash,
 		configGeneration: mr.Generation,
@@ -249,7 +261,7 @@ func (r *ManagedResourceControllerManager) ensureInstanceControllerFor(ctx conte
 		reconciler: reconciler,
 		done:       make(chan struct{}),
 	}
-	c, err := r.cacheFor(ctx, instanceCtrlCtx, dynCtrl, mr)
+	c, err := r.cacheFor(instanceCtrlCtx, instanceRestConfig, dynCtrl, mr)
 	if err != nil {
 		instanceCtrlCancel()
 		return nil, fmt.Errorf("failed to create cache for managed resource %q: %w", mrKey, err)
@@ -332,12 +344,7 @@ func (r *ManagedResourceControllerManager) SetupWithManager(name string, cfg *re
 // cacheFor returns the cache for the given ManagedResource.
 // The caches life time is bound to lifetimeCtx.
 // ctx is used for token requests and is not further used.
-func (r *ManagedResourceControllerManager) cacheFor(ctx, lifetimeCtx context.Context, controller controller.TypedController[Request], mr espejotev1alpha1.ManagedResource) (*instanceCache, error) {
-	rc, err := r.restConfigForManagedResource(ctx, mr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get rest config for managed resource: %w", err)
-	}
-
+func (r *ManagedResourceControllerManager) cacheFor(lifetimeCtx context.Context, rc *rest.Config, controller controller.TypedController[Request], mr espejotev1alpha1.ManagedResource) (*instanceCache, error) {
 	if found, e := findFirstDuplicate(mr.Spec.Triggers, func(tr espejotev1alpha1.ManagedResourceTrigger) string { return tr.Name }); found {
 		return nil, fmt.Errorf("duplicate trigger definition %q", e)
 	}
@@ -432,6 +439,7 @@ func (r *ManagedResourceControllerManager) restConfigForManagedResource(ctx cont
 		WrapTransport:   r.restConfig.WrapTransport,
 		Host:            r.restConfig.Host,
 		TLSClientConfig: *r.restConfig.TLSClientConfig.DeepCopy(),
+		QPS:             -1,
 	}
 	config.Wrap(func(rt http.RoundTripper) http.RoundTripper {
 		trrt.Base = rt

@@ -6,6 +6,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -24,6 +25,7 @@ var RootCmd = &cobra.Command{
 	Long:  `Espejote manages resources by server-side applying rendered Jsonnet manifests to the cluster. It allows fine-grained control over external context used to rendering the resources and the triggers that cause the resources to be applied.`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		cmd.SilenceUsage = true
+		rest.SetDefaultWarningHandler(rest.NewWarningWriter(os.Stderr, rest.WarningWriterOptions{}))
 	},
 }
 
