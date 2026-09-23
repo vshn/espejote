@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/DmitriyVTitov/size"
 	"github.com/google/go-jsonnet"
@@ -215,6 +216,12 @@ func (r *ManagedResourceReconciler) reconcile(ctx context.Context, req Request) 
 		r.configGeneration = managedResource.Generation
 	}
 
+	if waitSync, err := r.jsonnetLibraryCacheNeedsSync(ctx, req.TriggerInfo); err != nil {
+		return ctrl.Result{}, newEspejoteError(fmt.Errorf("error checking JsonnetLibrary trigger sync status: %w", err), DependencyConfigurationError)
+	} else if waitSync {
+		return ctrl.Result{RequeueAfter: 10 * time.Millisecond}, nil
+	}
+
 	rendered, err := (&Renderer{
 		Importer:            FromClientImporter(r.controllerClient, managedResource.GetNamespace(), r.jsonnetLibraryNamespace),
 		TriggerClientGetter: r.cache.clientForTrigger,
@@ -316,6 +323,41 @@ func (r *ManagedResourceReconciler) recordReconcileErr(ctx context.Context, req 
 
 	managedResource.Status.Status = errType
 	return r.controllerClient.Status().Update(ctx, &managedResource)
+}
+
+// a common pattern is to use jsonnet libraries as config and add a trigger to reconcile when they change.
+// Since the jsonnet libraries are loaded from controller cache, not the trigger cache, the render might be done before it has caught up.
+func (r *ManagedResourceReconciler) jsonnetLibraryCacheNeedsSync(ctx context.Context, ti TriggerInfo) (bool, error) {
+	l := log.FromContext(ctx).WithName("ManagedResourceReconciler.jsonnetLibraryCacheNeedsSync")
+
+	if ti.WatchResource.Group != espejotev1alpha1.GroupVersion.Group ||
+		ti.WatchResource.Kind != "JsonnetLibrary" {
+		return false, nil
+	}
+
+	tc, err := r.cache.clientForTrigger(ti.TriggerName)
+	if err != nil {
+		return false, fmt.Errorf("failed to get trigger cache for %q: %w", ti.TriggerName, err)
+	}
+	ref := client.ObjectKey{Namespace: ti.WatchResource.Namespace, Name: ti.WatchResource.Name}
+	var triggerCacheLib unstructured.Unstructured
+	triggerCacheLib.SetGroupVersionKind(espejotev1alpha1.GroupVersion.WithKind("JsonnetLibrary"))
+	if err := tc.Get(ctx, ref, &triggerCacheLib); err != nil {
+		return false, fmt.Errorf("failed to load JsonnetLibrary %q from trigger cache %q: %w", ref, ti.TriggerName, err)
+	}
+	var controllerCacheLib espejotev1alpha1.JsonnetLibrary
+	if err := r.controllerClient.Get(ctx, ref, &controllerCacheLib); err != nil {
+		return false, fmt.Errorf("failed to load JsonnetLibrary %q from controller cache: %w", ref, err)
+	}
+
+	if triggerCacheLib.GetGeneration() != controllerCacheLib.Generation {
+		l.V(1).Info("Controller and JsonnetLibrary trigger cache or not in sync",
+			"trigger_generation", triggerCacheLib.GetGeneration(),
+			"controller_generation", controllerCacheLib.Generation,
+			"jsonnetlibrary", ref)
+		return true, nil
+	}
+	return false, nil
 }
 
 // Render renders the given ManagedResource.

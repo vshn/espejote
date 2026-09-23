@@ -29,12 +29,15 @@ type ManagedResourceSpec struct {
 	// The template is rendered using Jsonnet and the result is applied to the cluster.
 	// The template can reference the context and trigger information.
 	// All access to injected data should be done through the `espejote.libsonnet` import.
-	// The template can reference JsonnetLibrary objects by importing them.
-	// JsonnetLibrary objects have the following structure:
+	// The template can reference `JsonnetLibrary` objects by importing them.
+	// `JsonnetLibrary` objects have the following structure:
 	// - "espejote.libsonnet": The built in library for accessing the context and trigger information.
-	// - "lib/<NAME>/<KEY>" libraries in the shared library namespace. The name corresponds to the name of the JsonnetLibrary object and the key to the key in the data field.
+	// - "lib/<NAME>/<KEY>" libraries in the shared library namespace. The name corresponds to the name of the `JsonnetLibrary` object and the key to the key in the data field.
 	//   The namespace is configured at controller startup and normally points to the namespace of the controller.
-	// - "<NAME>/<KEY>" libraries in the same namespace as the ManagedResource. The name corresponds to the name of the JsonnetLibrary object and the key to the key in the data field.
+	// - "<NAME>/<KEY>" libraries in the same namespace as the ManagedResource. The name corresponds to the name of the `JsonnetLibrary` object and the key to the key in the data field.
+	// The controller does not reconcile if an imported library is changed.
+	// Explicit reconciles can be configured by adding a `triggers.watchResource` pointing to the `JsonnetLibrary`.
+	// It is guaranteed that the import statement is in sync with `JsonnetLibrary` triggers.
 	// The template can return a single object, a list of objects, or null. Everything else is considered an error.
 	// If a list is returned, null objects in this list are silently dropped.
 	// Namespaced objects default to the namespace of the ManagedResource.
@@ -94,8 +97,12 @@ type ManagedResourceTrigger struct {
 	Interval metav1.Duration `json:"interval,omitempty"`
 
 	// WatchResource defines one or multiple resources that trigger the reconciliation of the ManagedResource.
-	// Resource information is injected when rendering the template and can be retrieved using `(import "espejote.libsonnet").getTrigger()`.
-	// `local esp = import "espejote.libsonnet"; esp.triggerType() == esp.TriggerTypeWatchResource` will be true if the render was triggered by a definition in this block.
+	// Resource information is injected when rendering the template and can be retrieved using `(import "espejote.libsonnet").triggerData()`.
+	// It contains two fields: `resource`: contains the full resource at the time of the trigger event, can be null on delete events. `resourceEvent`: `apiVersion`, `kind`, `name`, and `namespace`, `resourceEvent` is never null.
+	// `(import "espejote.libsonnet").triggerName()` is set to the `name` field of this struct.
+	//
+	// If read-after-trigger consistency with context resources is required `watchContextResource` can be used.
+	// If `espejote.io.JsonnetLibrary` manifests are watched it is guaranteed that the `import` cache is in sync with the trigger.
 	// +optional
 	WatchResource TriggerWatchResource `json:"watchResource,omitempty"`
 
@@ -103,6 +110,8 @@ type ManagedResourceTrigger struct {
 	// This is useful when you require both full (when the template changes) and partial (a context resource changes) reconciliation of the same resource.
 	// Check the example below. Both a context resource and a trigger are defined. If the trigger is not known in the template all network policies are reconciled.
 	// If the trigger is known, only the network policies that match the trigger are reconciled. Using `watchContextResource` allows this without having to define the same resource again.
+	//
+	// `watchContextResource` guarantees read-after-trigger consistency with the underlying context.
 	//
 	//   apiVersion: espejote.io/v1alpha1
 	//   kind: ManagedResource
