@@ -349,6 +349,74 @@ local trigger = esp.triggerData();
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
+	t.Run("reconcile from added watch JsonnetLibrary trigger", func(t *testing.T) {
+		t.Parallel()
+
+		testns := testutil.TmpNamespace(t, c)
+
+		triggerLib := &espejotev1alpha1.JsonnetLibrary{
+			Name:      "trigger",
+			Namespace: testns,
+			Spec: espejotev1alpha1.JsonnetLibrarySpec{
+				Data: map[string]string{
+					"value.json": "null",
+				},
+			},
+		}
+		require.NoError(t, c.Create(ctx, triggerLib))
+
+		res := &espejotev1alpha1.ManagedResource{
+			Name:      "test",
+			Namespace: testns,
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Triggers: []espejotev1alpha1.ManagedResourceTrigger{
+					{
+						Name: "jslib",
+						WatchResource: espejotev1alpha1.TriggerWatchResource{
+							APIVersion: "espejote.io/v1alpha1",
+							Kind:       "JsonnetLibrary",
+						},
+					},
+				},
+				Template: `
+local esp = import "espejote.libsonnet";
+local trigger = esp.triggerData();
+local value = import "trigger/value.json";
+
+[{
+  apiVersion: 'v1',
+  kind: 'ConfigMap',
+  metadata: {
+    name: 'collected',
+  },
+  data: {
+    value: std.manifestJsonMinified(value),
+  },
+}]
+				`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, res))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "collected"}, &cm))
+
+			assert.Equal(t, "null", cm.Data["value"])
+		}, 5*time.Second, 100*time.Millisecond)
+
+		for i := range 10 {
+			triggerLib.Spec.Data["value.json"] = strconv.Itoa(i)
+			require.NoError(t, c.Update(ctx, triggerLib))
+		}
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "collected"}, &cm))
+
+			assert.Equal(t, "9", cm.Data["value"])
+		}, 5*time.Second, 100*time.Millisecond)
+	})
+
 	t.Run("reconfigure filtered contexts", func(t *testing.T) {
 		t.Parallel()
 
