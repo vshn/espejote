@@ -48,8 +48,7 @@ func Test_UnmarshalJSON(t *testing.T) {
 					ApplyDefaults: def,
 					Kind:          applygroup.ApplyKind,
 					Resource:      mustUnmarshalUnstructured(t, `{"kind":"Example"}`),
-					ResourceApplyOptions: []client.PatchOption{
-						client.FieldValidation("Strict"),
+					ResourceApplyOptions: []applygroup.ApplyOption{
 						client.FieldOwner(def.FieldManagerFallback),
 					},
 				}
@@ -116,8 +115,7 @@ func Test_UnmarshalJSON(t *testing.T) {
 					Kind:          applygroup.ApplyKind,
 					ApplyDefaults: def,
 					Resource:      mustUnmarshalUnstructured(t, `{"kind":"Blubber"}`),
-					ResourceApplyOptions: []client.PatchOption{
-						client.FieldValidation("Strict"),
+					ResourceApplyOptions: []applygroup.ApplyOption{
 						client.FieldOwner("default-field-manager"),
 					},
 				}}
@@ -153,8 +151,7 @@ func Test_UnmarshalJSON(t *testing.T) {
 					Kind:          applygroup.ApplyKind,
 					ApplyDefaults: def,
 					Resource:      mustUnmarshalUnstructured(t, `{"kind":"OtherExample"}`),
-					ResourceApplyOptions: []client.PatchOption{
-						client.FieldValidation("Strict"),
+					ResourceApplyOptions: []applygroup.ApplyOption{
 						client.FieldOwner("default-field-manager"),
 					},
 				})
@@ -169,8 +166,7 @@ func Test_UnmarshalJSON(t *testing.T) {
 						Kind:          applygroup.ApplyKind,
 						ApplyDefaults: def,
 						Resource:      mustUnmarshalUnstructured(t, `{"kind":"Example"}`),
-						ResourceApplyOptions: []client.PatchOption{
-							client.FieldValidation("Strict"),
+						ResourceApplyOptions: []applygroup.ApplyOption{
 							client.FieldOwner("default-field-manager"),
 						},
 					},
@@ -488,7 +484,7 @@ type fakeClient struct {
 	calls []string
 }
 
-func (c *fakeClient) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
+func (c *fakeClient) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...applygroup.ApplyOption) error {
 	c.calls = append(c.calls, "Apply")
 	return nil
 }
