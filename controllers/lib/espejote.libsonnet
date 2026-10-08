@@ -313,20 +313,11 @@ local alpha = {
         This is useful if different code paths in the template apply differing parts of a resource.
       - force: boolean, is going to "force" Apply requests.
         It means user will re-acquire conflicting fields owned by other people.
-      - fieldValidation: string, instructs the managed resource on how to handle
-        objects containing unknown or duplicate fields. Valid values are:
-        - Ignore: This will ignore any unknown fields that are silently
-        dropped from the object, and will ignore all but the last duplicate
-        field that the decoder encounters.
-        Note that Jsonnet won't allow you to add duplicate fields to an object
-        and most unregistered fields will error out in the server-side apply
-        request, even with this option set.
-        - Strict: This will fail the request with a BadRequest error if
-        any unknown fields would be dropped from the object, or if any
-        duplicate fields are present. The error returned will contain
-        all unknown and duplicate fields encountered.
-        Defaults to "Strict".
-
+      - (DEPRECATED) fieldValidation: string, instructs the managed resource on how to handle
+        objects containing unknown or duplicate fields.
+        Server side apply always uses strict validation, this field is ignored.
+      - subResource: string, allows patching sub-resources. A commonly used sub-resource is `status`.
+        See the example for approving a CSR.
       ```jsonnet
       esp.applyOptions(
         {
@@ -342,6 +333,25 @@ local alpha = {
         },
         fieldManagerSuffix=':status-reporter',
       )
+
+      esp.applyOptions(
+        {
+          apiVersion: 'certificates.k8s.io/v1',
+          kind: 'CertificateSigningRequest',
+          metadata: {
+            name: 'node-xxx',
+          },
+          status: {
+            conditions: [{
+              message: 'Approved by espejote',
+              reason: 'ApprovedByMyEspejotePolicy',
+              type: 'Approved',
+              status: 'True',
+            }],
+          },
+        },
+        subResource='approval',
+      )
       ```
     |||,
     [
@@ -350,6 +360,7 @@ local alpha = {
       d.arg('fieldManagerSuffix', d.T.string, null),
       d.arg('force', d.T.boolean, null),
       d.arg('fieldValidation', d.T.string, null),
+      d.arg('subResource', d.T.string, null),
     ],
   ),
   applyOptions:
@@ -359,14 +370,13 @@ local alpha = {
       fieldManagerSuffix=null,
       force=null,
       fieldValidation=null,
+      subResource=null,
     ) obj {
-      local allowedFieldValidation = [null, 'Ignore', 'Strict'],
-      assert std.member(allowedFieldValidation, fieldValidation) : 'fieldValidation must be one of %s, is: %s' % [std.manifestJsonMinified(allowedFieldValidation), fieldValidation],
       __internal_use_espejote_lib_apply_options: std.prune({
         fieldManager: fieldManager,
         fieldManagerSuffix: fieldManagerSuffix,
         force: force,
-        fieldValidation: fieldValidation,
+        subResource: subResource,
       }),
     },
 

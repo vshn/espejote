@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -48,8 +49,7 @@ func Test_UnmarshalJSON(t *testing.T) {
 					ApplyDefaults: def,
 					Kind:          applygroup.ApplyKind,
 					Resource:      mustUnmarshalUnstructured(t, `{"kind":"Example"}`),
-					ResourceApplyOptions: []client.PatchOption{
-						client.FieldValidation("Strict"),
+					ResourceApplyOptions: []applygroup.ApplyOption{
 						client.FieldOwner(def.FieldManagerFallback),
 					},
 				}
@@ -116,8 +116,7 @@ func Test_UnmarshalJSON(t *testing.T) {
 					Kind:          applygroup.ApplyKind,
 					ApplyDefaults: def,
 					Resource:      mustUnmarshalUnstructured(t, `{"kind":"Blubber"}`),
-					ResourceApplyOptions: []client.PatchOption{
-						client.FieldValidation("Strict"),
+					ResourceApplyOptions: []applygroup.ApplyOption{
 						client.FieldOwner("default-field-manager"),
 					},
 				}}
@@ -153,8 +152,7 @@ func Test_UnmarshalJSON(t *testing.T) {
 					Kind:          applygroup.ApplyKind,
 					ApplyDefaults: def,
 					Resource:      mustUnmarshalUnstructured(t, `{"kind":"OtherExample"}`),
-					ResourceApplyOptions: []client.PatchOption{
-						client.FieldValidation("Strict"),
+					ResourceApplyOptions: []applygroup.ApplyOption{
 						client.FieldOwner("default-field-manager"),
 					},
 				})
@@ -169,8 +167,7 @@ func Test_UnmarshalJSON(t *testing.T) {
 						Kind:          applygroup.ApplyKind,
 						ApplyDefaults: def,
 						Resource:      mustUnmarshalUnstructured(t, `{"kind":"Example"}`),
-						ResourceApplyOptions: []client.PatchOption{
-							client.FieldValidation("Strict"),
+						ResourceApplyOptions: []applygroup.ApplyOption{
 							client.FieldOwner("default-field-manager"),
 						},
 					},
@@ -178,6 +175,24 @@ func Test_UnmarshalJSON(t *testing.T) {
 					secondInnerGroup,
 				}
 				return outerMost
+			},
+		},
+		{
+			name: "subresource",
+			defaults: applygroup.ApplyDefaults{
+				FieldManagerFallback: "default-field-manager",
+			},
+			json: mustMarshal(t, injectApplyOptions(t, mustUnmarshalUnstructured(t, `{"kind":"Example"}`), "subResource", "status")),
+			expected: func(def applygroup.ApplyDefaults) applygroup.Applier {
+				return applygroup.Applier{
+					ApplyDefaults: def,
+					Kind:          applygroup.ApplyKind,
+					Resource:      mustUnmarshalUnstructured(t, `{"kind":"Example"}`),
+					ResourceApplyOptions: []applygroup.ApplyOption{
+						client.FieldOwner(def.FieldManagerFallback),
+					},
+					SubResource: "status",
+				}
 			},
 		},
 		{
@@ -261,7 +276,16 @@ func Test_Apply(t *testing.T) {
 				Kind:     applygroup.ApplyKind,
 				Resource: &unstructured.Unstructured{Object: map[string]any{"kind": "Example"}},
 			},
-			expectedApplyCalls: []string{"Patch/Example//"},
+			expectedApplyCalls: []string{"Apply/Example//"},
+		},
+		{
+			name: "apply subresource",
+			subject: &applygroup.Applier{
+				Kind:        applygroup.ApplyKind,
+				Resource:    &unstructured.Unstructured{Object: map[string]any{"kind": "Example"}},
+				SubResource: "status",
+			},
+			expectedApplyCalls: []string{"status/Apply/Example//"},
 		},
 		{
 			name: "delete",
@@ -290,7 +314,7 @@ func Test_Apply(t *testing.T) {
 				},
 			},
 			expectedApplyCalls: []string{
-				"Patch/Example//",
+				"Apply/Example//",
 				"Delete/Example//",
 			},
 		},
@@ -489,7 +513,7 @@ type fakeClient struct {
 }
 
 func (c *fakeClient) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
-	c.calls = append(c.calls, "Apply")
+	c.recordCallWithObj("Apply", obj)
 	return nil
 }
 
@@ -518,6 +542,52 @@ func (c *fakeClient) DeleteAllOf(ctx context.Context, obj client.Object, opts ..
 	return nil
 }
 
-func (c *fakeClient) recordCallWithObj(call string, obj client.Object) {
-	c.calls = append(c.calls, strings.Join([]string{call, obj.GetObjectKind().GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName()}, "/"))
+func (c *fakeClient) SubResource(subResource string) client.SubResourceClient {
+	return &fakeSubResourceClient{func(call string, o any) {
+		c.recordCallWithObj(fmt.Sprintf("%s/%s", subResource, call), o)
+	}}
+}
+
+func (c *fakeClient) recordCallWithObj(call string, o any) {
+	type namedObj interface {
+		GetObjectKind() schema.ObjectKind
+		GetNamespace() string
+		GetName() string
+	}
+
+	switch obj := o.(type) {
+	case namedObj:
+		c.calls = append(c.calls, strings.Join([]string{call, obj.GetObjectKind().GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName()}, "/"))
+	default:
+		c.calls = append(c.calls, call)
+	}
+}
+
+type fakeSubResourceClient struct {
+	recordCallWithObj func(call string, o any)
+}
+
+func (c *fakeSubResourceClient) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+	c.recordCallWithObj("Apply", obj)
+	return nil
+}
+
+func (c *fakeSubResourceClient) Create(ctx context.Context, obj, obj2 client.Object, opts ...client.SubResourceCreateOption) error {
+	c.recordCallWithObj("Create", obj)
+	return nil
+}
+
+func (c *fakeSubResourceClient) Get(ctx context.Context, obj, obj2 client.Object, opts ...client.SubResourceGetOption) error {
+	c.recordCallWithObj("Get", obj)
+	return nil
+}
+
+func (c *fakeSubResourceClient) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	c.recordCallWithObj("Update", obj)
+	return nil
+}
+
+func (c *fakeSubResourceClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	c.recordCallWithObj("Patch", obj)
+	return nil
 }
