@@ -41,6 +41,11 @@ type ApplyDefaults struct {
 	FieldManagerFallback string
 }
 
+type ApplyOption interface {
+	client.ApplyOption
+	client.SubResourceApplyOption
+}
+
 // Applier represents a deeply nested structure of resources to apply or delete.
 // Best used by unmarshalling from JSON.
 //
@@ -56,9 +61,10 @@ type Applier struct {
 	ApplyDefaults ApplyDefaults
 	ErrorPolicy   string
 
-	ResourceApplyOptions  []client.PatchOption
+	ResourceApplyOptions  []ApplyOption
 	ResourceDeleteOptions []client.DeleteOption
 	Resource              *unstructured.Unstructured
+	Subresource           string
 
 	Group []Applier
 }
@@ -131,10 +137,11 @@ func (a *Applier) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 				a.ResourceDeleteOptions = delOpts
 				a.Resource = stripUnstructuredForDelete(u)
 			} else {
-				po, err := patchOptionsFromObject(a.ApplyDefaults, u)
+				po, subresource, err := patchOptionsFromObject(a.ApplyDefaults, u)
 				if err != nil {
 					return fmt.Errorf("getting patch options: %w", err)
 				}
+				a.Subresource = subresource
 				a.ResourceApplyOptions = po
 			}
 		}
@@ -198,7 +205,10 @@ func (a *Applier) Walk(f func(*Applier) error) error {
 // Apply applies or deletes the resource(s) represented by this Applier using the given client.
 // It returns an error if any operation fails.
 // For groups, it respects the errorPolicy: "Abort" stops on the first error, "Continue" collects all errors.
-func (a *Applier) Apply(ctx context.Context, cli client.Writer) error {
+func (a *Applier) Apply(ctx context.Context, cli interface {
+	client.Writer
+	client.SubResourceClientConstructor
+}) error {
 	switch a.Kind {
 	case NoopKind:
 		return nil
@@ -206,8 +216,20 @@ func (a *Applier) Apply(ctx context.Context, cli client.Writer) error {
 		if a.Resource == nil {
 			return fmt.Errorf("apply kind requires a resource")
 		}
-		if err := cli.Patch(ctx, a.Resource, client.Apply, a.ResourceApplyOptions...); err != nil {
-			return fmt.Errorf("applying resource %s/%s %s: %w", a.Resource.GetNamespace(), a.Resource.GetName(), a.Resource.GetKind(), err)
+		if a.Subresource != "" {
+			ugh := make([]client.SubResourceApplyOption, len(a.ResourceApplyOptions))
+			for i, o := range a.ResourceApplyOptions {
+				ugh[i] = o
+			}
+			cli.SubResource(a.Subresource).Apply(ctx, client.ApplyConfigurationFromUnstructured(a.Resource), ugh...)
+		} else {
+			ugh := make([]client.ApplyOption, len(a.ResourceApplyOptions))
+			for i, o := range a.ResourceApplyOptions {
+				ugh[i] = o
+			}
+			if err := cli.Apply(ctx, client.ApplyConfigurationFromUnstructured(a.Resource), ugh...); err != nil {
+				return fmt.Errorf("applying resource %s/%s %s: %w", a.Resource.GetNamespace(), a.Resource.GetName(), a.Resource.GetKind(), err)
+			}
 		}
 		return nil
 	case DeleteKind:
@@ -246,25 +268,13 @@ func (a *Applier) Apply(ctx context.Context, cli client.Writer) error {
 // - FieldManager: the field manager/owner
 // - ForceOwnership: if true, the ownership is forced (default: false)
 // Warning: this function modifies the object by removing the options from the annotations.
-func patchOptionsFromObject(defaults ApplyDefaults, obj *unstructured.Unstructured) ([]client.PatchOption, error) {
+func patchOptionsFromObject(defaults ApplyDefaults, obj *unstructured.Unstructured) ([]ApplyOption, string, error) {
 	const optionsKey = "__internal_use_espejote_lib_apply_options"
-
-	fieldValidation := defaults.FieldValidation
-	objFieldValidation, ok, err := unstructured.NestedString(obj.UnstructuredContent(), optionsKey, "fieldValidation")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get apply option field validation: %w", err)
-	}
-	if ok {
-		fieldValidation = objFieldValidation
-	}
-	if fieldValidation == "" {
-		fieldValidation = "Strict"
-	}
 
 	fieldManager := defaults.FieldManager
 	objFieldManager, ok, err := unstructured.NestedString(obj.UnstructuredContent(), optionsKey, "fieldManager")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get apply option fieldManager: %w", err)
+		return nil, "", fmt.Errorf("failed to get apply option fieldManager: %w", err)
 	}
 	if ok {
 		fieldManager = objFieldManager
@@ -274,15 +284,15 @@ func patchOptionsFromObject(defaults ApplyDefaults, obj *unstructured.Unstructur
 	}
 	objFieldManagerSuffix, _, err := unstructured.NestedString(obj.UnstructuredContent(), optionsKey, "fieldManagerSuffix")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get apply option fieldManagerSuffix: %w", err)
+		return nil, "", fmt.Errorf("failed to get apply option fieldManagerSuffix: %w", err)
 	}
 	fieldManager += objFieldManagerSuffix
 
-	po := []client.PatchOption{client.FieldValidation(fieldValidation), client.FieldOwner(fieldManager)}
+	po := []ApplyOption{client.FieldOwner(fieldManager)}
 
 	objForce, ok, err := unstructured.NestedBool(obj.UnstructuredContent(), optionsKey, "force")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get apply option force: %w", err)
+		return nil, "", fmt.Errorf("failed to get apply option force: %w", err)
 	}
 	if ok {
 		if objForce {
@@ -292,9 +302,14 @@ func patchOptionsFromObject(defaults ApplyDefaults, obj *unstructured.Unstructur
 		po = append(po, client.ForceOwnership)
 	}
 
+	subresource, _, err := unstructured.NestedString(obj.UnstructuredContent(), optionsKey, "subresource")
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to get apply option subresource: %w", err)
+	}
+
 	unstructured.RemoveNestedField(obj.UnstructuredContent(), optionsKey)
 
-	return po, nil
+	return po, subresource, nil
 }
 
 // stripUnstructuredForDelete returns a copy of the given unstructured object with only the GroupVersionKind, Namespace and Name set.
