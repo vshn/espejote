@@ -57,6 +57,15 @@ local err(msg) = result {
   _type: 'error',
 };
 
+local fromTuple(tuple) =
+  if std.length(tuple) == 2 then
+    if tuple[1] == null then
+      ok(tuple[0])
+    else
+      err(tuple[1])
+  else
+    error 'Invalid tuple length: expected 2, got %s' % std.length(tuple);
+
 {
   '#': d.pkg(
     name='errors',
@@ -108,8 +117,21 @@ local err(msg) = result {
     d.arg('msg', d.T.string),
   ]),
   err: err,
+  '#fromTuple': d.fn(|||
+    Creates a result from a tuple of the form `[value, error]`.
+    If the error is `null`, it returns an `ok` result with the value.
+    Otherwise, it returns an `err` result with the error message.
+
+    ```jsonnet
+      local val = errors.fromTuple([42, null]); // ok(42)
+      local err = errors.fromTuple([42, 'something went wrong']); // err('something went wrong')
+    ```
+  |||, [
+    d.arg('tuple', d.T.array),
+  ]),
+  fromTuple: fromTuple,
   '#result': d.obj(
-    'A result can be either a successful value or an error message. It provides methods to handle both cases. Should be created using `ok` or `err` functions.',
+    'A result can be either a successful value or an error message. It provides methods to handle both cases. Should be created using `ok`, `err`, or `fromTuple` functions.',
   ),
   result: result,
 }
