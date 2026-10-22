@@ -1,13 +1,5 @@
-FROM docker.io/library/alpine:3.24
+FROM gcr.io/distroless/static:nonroot@sha256:d62067879de890a1def9da0e7766b7d20810a5e5555cef8506b752437d7a3e88
 
-RUN \
-  apk add --update --no-cache \
-    bash \
-    curl \
-    ca-certificates \
-    tzdata
-
-ENTRYPOINT ["espejote"]
+ENTRYPOINT ["/usr/bin/espejote"]
 COPY espejote /usr/bin/
 
-USER 65536:0
