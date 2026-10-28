@@ -2,8 +2,13 @@ package controllers
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/x509"
 	"encoding/json/v2"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net"
@@ -22,9 +27,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/multierr"
+	certificatesv1 "k8s.io/api/certificates/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
@@ -277,6 +282,62 @@ if esp.triggerName() == "ns" then [{
 		}, 2*time.Second, 100*time.Millisecond, "managed resource should stop reconciling if there is a deletion timestamp")
 
 		require.NoError(t, c.Patch(ctx, res, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":null}}`))))
+	})
+
+	t.Run("subresource apply", func(t *testing.T) {
+		t.Parallel()
+
+		testns := testutil.TmpNamespace(t, c)
+
+		csr := &certificatesv1.CertificateSigningRequest{
+			Name: testns,
+			Spec: certificatesv1.CertificateSigningRequestSpec{
+				Request:    generateCertRequest(t),
+				Usages:     []certificatesv1.KeyUsage{certificatesv1.UsageAny},
+				SignerName: "testing.espejote.io/test",
+			},
+		}
+		require.NoError(t, c.Create(ctx, csr))
+
+		mr := &espejotev1alpha1.ManagedResource{
+			Name:      "test",
+			Namespace: testns,
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Template: `(import "espejote.libsonnet").applyOptions({
+					apiVersion: 'certificates.k8s.io/v1',
+					kind: 'CertificateSigningRequest',
+					metadata: {
+						name: '` + testns + `',
+					},
+					status: {
+						conditions: [{
+							message: "Approved by espejote",
+							reason: "ApprovedByMyPolicy",
+							type: "Approved",
+							status: "True",
+						}],
+					},
+				}, subResource='approval')
+				`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
+			assert.Equal(t, "Ready", mr.Status.Status)
+
+			var csr certificatesv1.CertificateSigningRequest
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: testns}, &csr))
+			var approved bool
+			for _, c := range csr.Status.Conditions {
+				if c.Type == "Approved" && c.Status == corev1.ConditionTrue {
+					approved = true
+					break
+				}
+			}
+			assert.Truef(t, approved, "expected CSR to be approved, conditions: %+v", csr.Status.Conditions)
+		}, 5*time.Second, 100*time.Millisecond)
 	})
 
 	t.Run("reconcile from added watch resource trigger", func(t *testing.T) {
@@ -1210,115 +1271,6 @@ local netpols = esp.context().netpols;
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
-	t.Run("field validation Ignore", func(t *testing.T) {
-		t.Parallel()
-		t.Log("field validation Ignore seems to have no effect on the apply process. This test is here to document this behavior and see if the behavior changes in the future.")
-
-		testns := testutil.TmpNamespace(t, c)
-
-		mr := &espejotev1alpha1.ManagedResource{
-			Name:      "test",
-			Namespace: testns,
-			Spec: espejotev1alpha1.ManagedResourceSpec{
-				Template: `{
-					apiVersion: "v1",
-					kind: "ConfigMap",
-					metadata: {
-						name: "test",
-						namespace: "` + testns + `",
-					},
-					data: {
-						test: "test",
-					},
-					typo: "what what",
-				}`,
-			},
-		}
-		require.NoError(t, c.Create(ctx, mr))
-
-		t.Log("waiting for the validation error event")
-		require.EventuallyWithT(t, func(t *assert.CollectT) {
-			var events corev1.EventList
-			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorWithResourceVersion(eventSelectorForManagedResource(mr.Name), mr.ResourceVersion)))
-			require.Len(t, events.Items, 1)
-			assert.Equal(t, "Warning", events.Items[0].Type)
-			assert.Contains(t, events.Items[0].Message, ApplyError)
-			assert.Contains(t, events.Items[0].Message, ".typo")
-			assert.Contains(t, events.Items[0].Message, "field not declared")
-		}, 5*time.Second, 100*time.Millisecond)
-
-		t.Log("ignoring dropped field and waiting for a successful update")
-		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
-		mr.Spec.ApplyOptions.FieldValidation = "Ignore"
-		require.NoError(t, c.Update(ctx, mr))
-
-		// Error should always be IsNotFound, see head of test as for why
-		require.Never(t, func() bool {
-			return !apierrors.IsNotFound(c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, new(corev1.ConfigMap)))
-		}, 2*time.Second, 100*time.Millisecond)
-	})
-
-	t.Run("field validation Ignore espejote.libsonnet", func(t *testing.T) {
-		t.Parallel()
-		t.Log("field validation Ignore seems to have no effect on the apply process. This test is here to document this behavior and see if the behavior changes in the future.")
-
-		testns := testutil.TmpNamespace(t, c)
-
-		mr := &espejotev1alpha1.ManagedResource{
-			Name:      "test",
-			Namespace: testns,
-			Spec: espejotev1alpha1.ManagedResourceSpec{
-				Template: `{
-					apiVersion: "v1",
-					kind: "ConfigMap",
-					metadata: {
-						name: "test",
-						namespace: "` + testns + `",
-					},
-					data: {
-						test: "test",
-					},
-					typo: "what what",
-				}`,
-			},
-		}
-		require.NoError(t, c.Create(ctx, mr))
-
-		t.Log("waiting for the validation error event")
-		require.EventuallyWithT(t, func(t *assert.CollectT) {
-			var events corev1.EventList
-			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
-			require.NoError(t, c.List(ctx, &events, client.InNamespace(testns), eventSelectorWithResourceVersion(eventSelectorForManagedResource(mr.Name), mr.ResourceVersion)))
-			require.Len(t, events.Items, 1)
-			assert.Equal(t, "Warning", events.Items[0].Type)
-			assert.Contains(t, events.Items[0].Message, ApplyError)
-			assert.Contains(t, events.Items[0].Message, ".typo")
-			assert.Contains(t, events.Items[0].Message, "field not declared")
-		}, 5*time.Second, 100*time.Millisecond)
-
-		t.Log("ignoring dropped field and waiting for a successful update")
-		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mr), mr))
-		mr.Spec.Template = `(import "espejote.libsonnet").applyOptions({
-					apiVersion: "v1",
-					kind: "ConfigMap",
-					metadata: {
-						name: "test",
-						namespace: "` + testns + `",
-					},
-					data: {
-						test: "test",
-					},
-					typo: "what what",
-				}, fieldValidation="Ignore")`
-		require.NoError(t, c.Update(ctx, mr))
-
-		// Error should always be IsNotFound, see head of test as for why
-		require.Never(t, func() bool {
-			return !apierrors.IsNotFound(c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "test"}, new(corev1.ConfigMap)))
-		}, 2*time.Second, 100*time.Millisecond)
-	})
-
 	t.Run("interval trigger", func(t *testing.T) {
 		t.Parallel()
 
@@ -2159,4 +2111,16 @@ breakTestLoop:
 	}
 
 	t.Fatalf("ResourceVersion did not stabilize within the timeout")
+}
+
+func generateCertRequest(t *testing.T) []byte {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), nil)
+	require.NoError(t, err)
+
+	raw, err := x509.CreateCertificateRequest(nil, new(x509.CertificateRequest), priv)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	require.NoError(t, pem.Encode(&buf, &pem.Block{Type: "CERTIFICATE REQUEST", Bytes: raw}))
+	return buf.Bytes()
 }

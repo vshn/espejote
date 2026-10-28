@@ -13,7 +13,7 @@ local espejote = import "espejote.libsonnet"
 ## Index
 
 * [`fn applyGroup(objs, errorPolicy='')`](#fn-applygroup)
-* [`fn applyOptions(obj, fieldManager, fieldManagerSuffix, force, fieldValidation)`](#fn-applyoptions)
+* [`fn applyOptions(obj, fieldManager, fieldManagerSuffix, force, fieldValidation, subResource)`](#fn-applyoptions)
 * [`fn context()`](#fn-context)
 * [`fn markForDelete(obj, gracePeriodSeconds, propagationPolicy, preconditionUID, preconditionResourceVersion)`](#fn-markfordelete)
 * [`fn triggerData()`](#fn-triggerdata)
@@ -81,7 +81,7 @@ local manageResourceFromCM = function(cm)
 ### fn applyOptions
 
 ```ts
-applyOptions(obj, fieldManager, fieldManagerSuffix, force, fieldValidation)
+applyOptions(obj, fieldManager, fieldManagerSuffix, force, fieldValidation, subResource)
 ```
 
 `applyOptions` allows configuring apply options for an object.
@@ -95,20 +95,11 @@ The options are:
   This is useful if different code paths in the template apply differing parts of a resource.
 - force: boolean, is going to "force" Apply requests.
   It means user will re-acquire conflicting fields owned by other people.
-- fieldValidation: string, instructs the managed resource on how to handle
-  objects containing unknown or duplicate fields. Valid values are:
-  - Ignore: This will ignore any unknown fields that are silently
-  dropped from the object, and will ignore all but the last duplicate
-  field that the decoder encounters.
-  Note that Jsonnet won't allow you to add duplicate fields to an object
-  and most unregistered fields will error out in the server-side apply
-  request, even with this option set.
-  - Strict: This will fail the request with a BadRequest error if
-  any unknown fields would be dropped from the object, or if any
-  duplicate fields are present. The error returned will contain
-  all unknown and duplicate fields encountered.
-  Defaults to "Strict".
-
+- (DEPRECATED) fieldValidation: string, instructs the managed resource on how to handle
+  objects containing unknown or duplicate fields.
+  Server side apply always uses strict validation, this field is ignored.
+- subResource: string, allows patching sub-resources. A commonly used sub-resource is `status`.
+  See the example for approving a CSR.
 ```jsonnet
 esp.applyOptions(
   {
@@ -123,6 +114,25 @@ esp.applyOptions(
     },
   },
   fieldManagerSuffix=':status-reporter',
+)
+
+esp.applyOptions(
+  {
+    apiVersion: 'certificates.k8s.io/v1',
+    kind: 'CertificateSigningRequest',
+    metadata: {
+      name: 'node-xxx',
+    },
+    status: {
+      conditions: [{
+        message: 'Approved by espejote',
+        reason: 'ApprovedByMyEspejotePolicy',
+        type: 'Approved',
+        status: 'True',
+      }],
+    },
+  },
+  subResource='approval',
 )
 ```
 
