@@ -48,7 +48,7 @@ en:
       name: "espejote.libsonnet Reference"
       url: "https://github.com/vshn/espejote/blob/main/docs/lib/README.md"
       weight: 4
-      post: "Describes the command line interface of Espejote."
+      post: "Reference documentation for the Jsonnet library implementing accessors for Espejote features"
       parent: "documentation"
     - identifier: "examples"
       name: "Examples"
