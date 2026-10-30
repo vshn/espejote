@@ -30,6 +30,25 @@ func TestBcryptingIsEasy(t *testing.T) {
 	}
 }
 
+func TestBcryptingWithSaltIsEasy(t *testing.T) {
+	pass := []byte("mypassword")
+	salt := []byte("ZQcn71ondfwA8W7D")
+	hp, err := GenerateFromPasswordWithSalt(pass, salt, 0)
+	if err != nil {
+		t.Fatalf("GenerateFromPassword error: %s", err)
+	}
+
+	if CompareHashAndPassword(hp, pass) != nil {
+		t.Errorf("%v should hash %s correctly", hp, pass)
+	}
+
+	notPass := "notthepass"
+	err = CompareHashAndPassword(hp, []byte(notPass))
+	if err != ErrMismatchedHashAndPassword {
+		t.Errorf("%v and %s should be mismatched", hp, notPass)
+	}
+}
+
 func TestBcryptingIsCorrect(t *testing.T) {
 	pass := []byte("allmine")
 	salt := []byte("XajjQvNhvvRt5GSeFk1xFe")
@@ -156,15 +175,16 @@ func TestCostValidationInHash(t *testing.T) {
 	}
 
 	pass := []byte("mypassword")
+	salt := []byte("ZQcn71ondfwA8W7D")
 
 	for c := 0; c < MinCost; c++ {
-		p, _ := newFromPassword(pass, c)
+		p, _ := newFromPassword(pass, salt, c)
 		if p.cost != DefaultCost {
 			t.Errorf("newFromPassword should default costs below %d to %d, but was %d", MinCost, DefaultCost, p.cost)
 		}
 	}
 
-	p, _ := newFromPassword(pass, 14)
+	p, _ := newFromPassword(pass, salt, 14)
 	if p.cost != 14 {
 		t.Errorf("newFromPassword should default cost to 14, but was %d", p.cost)
 	}
@@ -174,7 +194,7 @@ func TestCostValidationInHash(t *testing.T) {
 		t.Errorf("newFromHash should maintain the cost at %d, but was %d", p.cost, hp.cost)
 	}
 
-	_, err := newFromPassword(pass, 32)
+	_, err := newFromPassword(pass, salt, 32)
 	if err == nil {
 		t.Fatalf("newFromPassword: should return a cost error")
 	}
@@ -184,7 +204,8 @@ func TestCostValidationInHash(t *testing.T) {
 }
 
 func TestCostReturnsWithLeadingZeroes(t *testing.T) {
-	hp, _ := newFromPassword([]byte("abcdefgh"), 7)
+	salt := []byte("ZQcn71ondfwA8W7D")
+	hp, _ := newFromPassword([]byte("abcdefgh"), salt, 7)
 	cost := hp.Hash()[4:7]
 	expected := []byte("07$")
 
@@ -248,5 +269,12 @@ func TestPasswordTooLong(t *testing.T) {
 	_, err := GenerateFromPassword(make([]byte, 73), 1)
 	if err != ErrPasswordTooLong {
 		t.Errorf("unexpected error: got %q, want %q", err, ErrPasswordTooLong)
+	}
+}
+
+func TestSaltIncorrectLength(t *testing.T) {
+	_, err := GenerateFromPasswordWithSalt([]byte("thepassword"), make([]byte, 15), 1)
+	if err != ErrIncorrectSaltLength {
+		t.Errorf("unexpected error: got %q, want %q", err, ErrIncorrectSaltLength)
 	}
 }

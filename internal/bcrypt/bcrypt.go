@@ -85,8 +85,13 @@ type hashed struct {
 }
 
 // ErrPasswordTooLong is returned when the password passed to
-// GenerateFromPassword is too long (i.e. > 72 bytes).
+// GenerateFromPassword or GenerateFromPasswordWithSalt is too long (i.e. > 72
+// bytes).
 var ErrPasswordTooLong = errors.New("bcrypt: password length exceeds 72 bytes")
+
+// ErrIncorrectSaltLength is returned when the salt passed to
+// GenerateFromPasswordWithSalt is not exactly 16 bytes long.
+var ErrIncorrectSaltLength = errors.New("bcrypt: salt must be exactly 16 bytes long")
 
 // GenerateFromPassword returns the bcrypt hash of the password at the given
 // cost. If the cost given is less than MinCost, the cost will be set to
@@ -98,7 +103,33 @@ func GenerateFromPassword(password []byte, cost int) ([]byte, error) {
 	if len(password) > 72 {
 		return nil, ErrPasswordTooLong
 	}
-	p, err := newFromPassword(password, cost)
+	salt, err := newSalt()
+	if err != nil {
+		return nil, err
+	}
+	p, err := newFromPassword(password, salt, cost)
+	if err != nil {
+		return nil, err
+	}
+	return p.Hash(), nil
+}
+
+// GenerateFromPasswordWithSalt returns the bcrypt hash of the password at the
+// given cost. If the cost given is less than MinCost, the cost will be set to
+// DefaultCost, instead. Use CompareHashAndPassword, as defined in this
+// package, to compare the returned hashed password with its cleartext
+// version.  GenerateFromPasswordWithSalt does not accept passwords longer
+// than 72 bytes, which is the longest password bcrypt will operate on.
+// Additionally, GenerateFromPasswordWithSalt does not accept salts of lengths
+// other than 16 bytes, which is the only salt size supported by bcrypt.
+func GenerateFromPasswordWithSalt(password, salt []byte, cost int) ([]byte, error) {
+	if len(password) > 72 {
+		return nil, ErrPasswordTooLong
+	}
+	if len(salt) != maxSaltSize {
+		return nil, ErrIncorrectSaltLength
+	}
+	p, err := newFromPassword(password, salt, cost)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +169,17 @@ func Cost(hashedPassword []byte) (int, error) {
 	return p.cost, nil
 }
 
-func newFromPassword(password []byte, cost int) (*hashed, error) {
+func newSalt() ([]byte, error) {
+	unencodedSalt := make([]byte, maxSaltSize)
+	_, err := io.ReadFull(rand.Reader, unencodedSalt)
+	if err != nil {
+		return nil, err
+	}
+
+	return unencodedSalt, nil
+}
+
+func newFromPassword(password, salt []byte, cost int) (*hashed, error) {
 	if cost < MinCost {
 		cost = DefaultCost
 	}
@@ -151,14 +192,8 @@ func newFromPassword(password []byte, cost int) (*hashed, error) {
 		return nil, err
 	}
 	p.cost = cost
+	p.salt = base64Encode(salt)
 
-	unencodedSalt := make([]byte, maxSaltSize)
-	_, err = io.ReadFull(rand.Reader, unencodedSalt)
-	if err != nil {
-		return nil, err
-	}
-
-	p.salt = base64Encode(unencodedSalt)
 	hash, err := bcrypt(password, p.cost, p.salt)
 	if err != nil {
 		return nil, err
