@@ -134,6 +134,7 @@ func (h *handler) handle(ctx context.Context, admissionKey types.NamespacedName,
 
 	jvm := jsonnet.MakeVM()
 	jvm.Importer(controllers.FromClientImporter(h.Client, admNamespace, h.JsonnetLibraryNamespace))
+	espjsonnet.ConfigureNativeFunctions(jvm)
 	jvm.NativeFunction(applyPatchNativeFunction)
 
 	reqJson, err := json.Marshal(req)
