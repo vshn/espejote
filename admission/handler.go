@@ -23,6 +23,7 @@ import (
 
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
 	"github.com/vshn/espejote/controllers"
+	espjsonnet "github.com/vshn/espejote/internal/jsonnet"
 )
 
 var (
@@ -189,7 +190,7 @@ func (ar admissionResponse) toAdmissionResponse() webhook.AdmissionResponse {
 var applyPatchNativeFunction = &jsonnet.NativeFunction{
 	Name:   "__internal_use_espejote_lib_function_apply_json_patch",
 	Params: ast.Identifiers{"obj", "patch"},
-	Func: wrapJsonnetFunctionErrorToTuple(func(args []any) (any, error) {
+	Func: espjsonnet.WrapJsonnetFunctionErrorToTuple(func(args []any) (any, error) {
 		if len(args) != 2 {
 			return nil, fmt.Errorf("expected 2 arguments, got %d", len(args))
 		}
@@ -224,15 +225,4 @@ var applyPatchNativeFunction = &jsonnet.NativeFunction{
 
 		return patched, nil
 	}),
-}
-
-// wrapJsonnetFunctionErrorToTuple wraps a function that returns a single value and an error into a function that returns a tuple [ret, error message] and never returns an error.
-func wrapJsonnetFunctionErrorToTuple(f func([]any) (any, error)) func([]any) (any, error) {
-	return func(args []any) (any, error) {
-		ret, err := f(args)
-		if err != nil {
-			return []any{ret, err.Error()}, nil
-		}
-		return []any{ret, nil}, nil
-	}
 }
