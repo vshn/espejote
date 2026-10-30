@@ -217,6 +217,88 @@ local alpha = {
     `admission` contains functions for validating and mutating objects.
   |||),
   admission: admission,
+  '#bcrypt': d.fn(
+    |||
+      `bcrypt` generates the bcrypt hash for the provided password and salt
+      strings.
+
+      The function returns an array with two elements. The first element is
+      the bcrypt hash for the passed password and salt. The second element is
+      `null` if the native function completed successfully, or a string
+      containing the error message if the native function failed.
+
+      Espejote implements the `bcrypt` native function using a vendored copy
+      of `golang.org/x/crypto/bcrypt`. In contrast to the upstream library,
+      the vendored copy requires an user-supplied salt. This ensures that
+      calling the function with the same inputs will result in the same output
+      on every template evaluation.
+
+      Currently the native function uses the library's DefaultCost when
+      computing the bcrypt hash.
+
+      Example ManagedResource template:
+
+      ```
+      local esp = import 'espejote.libsonnet';
+
+      local users =
+        local user_ctx = esp.context().users;
+        // ... context validation omitted ...
+        // assumption: data.users of the secret in the context has shape
+        // {
+        //   username: password,
+        //   ...
+        // }
+        std.parseJson(std.base64Decode(user_ctx[0].data.users));
+
+      // Espejote registers the native function to return a tuple which
+      // contains the return value as the first element and the native
+      // function's error (if any) as the second element. For this example, we
+      // simply make any errors returned by the native function hard template
+      // errors, but in some cases the template may want to do something else
+      // instead.
+      local bcrypt_err(password, salt) =
+        local bhash = espn.bcrypt(password, salt);
+        if bhash[1] != null then
+          error bhash[1]
+        else
+          bhash[0];
+
+      local entries = [
+        // This example uses the last 16 bytes of the user name's sha256 hash
+        // as the salt, which ensures that we generate a stable bcrypt hash
+        // for the same username. Note that this reduces the security of the
+        // bcrypt hash significantly, since an attacker could now determine
+        // the salt from a leaked (or known) username.
+        // For better security, random salts for each user should be provided
+        // through an Espejote context.
+        '%s:%s' % [ u, bcrypt_err(users[u], std.sha256(u)[-16:]) ]
+        for u in std.objectFields(users)
+      ];
+
+      {
+        apiVersion: 'v1',
+        kind: 'Secret',
+        metadata: {
+          name: 'htpasswd',
+        },
+        stringData: {
+          htpasswd: std.join('\n', entries),
+        },
+      }
+      ```
+    |||,
+    [
+      d.arg('password', d.T.string, null),
+      d.arg('salt', d.T.string, null),
+    ]
+  ),
+  bcrypt(password, salt)::
+    local bcrypt_native = std.native('bcrypt');
+    if bcrypt_native == null then
+      error "Native function 'bcrypt' not configured"
+    else
+      bcrypt_native(password, salt),
 };
 
 {
