@@ -40,6 +40,7 @@ import (
 	metricserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
+	"github.com/vshn/espejote/internal/bcrypt"
 	"github.com/vshn/espejote/testutil"
 )
 
@@ -1928,6 +1929,47 @@ local cm(name) = {
 			err := c.Get(ctx, client.ObjectKeyFromObject(mr), mrCopy)
 			return mrCopy, err
 		})
+	})
+
+	t.Run("managedresource native bcrypt function", func(t *testing.T) {
+		testns := testutil.TmpNamespace(t, c)
+
+		mr := &espejotev1alpha1.ManagedResource{
+			Name:      "test-native-bcrypt",
+			Namespace: testns,
+			Spec: espejotev1alpha1.ManagedResourceSpec{
+				Template: `
+local esp = import 'espejote.libsonnet';
+local bhash = esp.ALPHA.bcrypt("password", "6xFelWqTiBgEOc3n");
+if bhash[1] != null then
+  error bhash[1]
+else
+  {
+    apiVersion: 'v1',
+    kind: 'ConfigMap',
+    metadata: {
+      name: 'bcrypt',
+    },
+    data: {
+      bcrypt: bhash[0],
+    }
+  }
+				`,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mr))
+		t.Cleanup(func() {
+			require.NoError(t, c.Delete(context.Background(), mr))
+		})
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			var cm corev1.ConfigMap
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testns, Name: "bcrypt"}, &cm))
+			bhash, ok := cm.Data["bcrypt"]
+			require.True(t, ok)
+			err := bcrypt.CompareHashAndPassword([]byte(bhash), []byte("password"))
+			assert.NoError(t, err)
+		}, 5*time.Second, 100*time.Millisecond)
 	})
 }
 
