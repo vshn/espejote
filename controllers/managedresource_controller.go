@@ -27,6 +27,7 @@ import (
 
 	espejotev1alpha1 "github.com/vshn/espejote/api/v1alpha1"
 	"github.com/vshn/espejote/controllers/applygroup"
+	espjsonnet "github.com/vshn/espejote/internal/jsonnet"
 )
 
 type Request struct {
@@ -372,6 +373,7 @@ type Renderer struct {
 func (r *Renderer) Render(ctx context.Context, managedResource espejotev1alpha1.ManagedResource, ti TriggerInfo) (string, error) {
 	jvm := jsonnet.MakeVM()
 	jvm.Importer(r.Importer)
+	espjsonnet.ConfigureNativeFunctions(jvm)
 
 	triggerNode, err := r.renderTriggers(ctx, r.TriggerClientGetter, ti)
 	if err != nil {
