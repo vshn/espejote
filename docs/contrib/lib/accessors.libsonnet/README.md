@@ -17,6 +17,7 @@ local accessors = import "accessors.libsonnet"
 * [`fn getName(obj)`](#fn-getname)
 * [`fn getNamespace(obj)`](#fn-getnamespace)
 * [`fn inDelete(obj)`](#fn-indelete)
+* [`fn setOwnerReference(owner, obj, controller=false)`](#fn-setownerreference)
 
 ## Fields
 
@@ -63,3 +64,34 @@ inDelete(obj)
 ```
 
 Checks if an object is in the process of being deleted.
+
+
+### fn setOwnerReference
+
+```ts
+setOwnerReference(owner, obj, controller=false)
+```
+
+Sets an owner reference on an object.
+The owner reference is validated and an error message is returned if it's invalid.
+
+This function assumes the owner reference is a static patch and thus does not check for existing owner references on the object.
+
+If `controller` is true, the owner reference will be set as a controller reference by setting the `controller` and `blockOwnerDeletion` fields to true.
+
+Returns an array of `[updatedObject, errorString]`.
+If the owner reference is valid, `errorString` will be null.
+
+
+```jsonnet
+  local obj = errors.fromTuple(accessors.setOwnerReference(
+    owner,
+    {
+      apiVersion: 'v1',
+      kind: 'ConfigMap',
+      metadata: {
+        name: 'object',
+      },
+    },
+  )).unpack();
+```

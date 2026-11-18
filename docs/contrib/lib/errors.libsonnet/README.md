@@ -45,6 +45,7 @@ local message1 = result1.match(
 ## Index
 
 * [`fn err(msg)`](#fn-err)
+* [`fn fromTuple(tuple)`](#fn-fromtuple)
 * [`fn ok(any)`](#fn-ok)
 * [`obj result`](#obj-result)
   * [`fn match(ok, err)`](#fn-resultmatch)
@@ -62,6 +63,22 @@ err(msg)
 Err creates an error result containing the given error message.
 
 
+### fn fromTuple
+
+```ts
+fromTuple(tuple)
+```
+
+Creates a result from a tuple of the form `[value, error]`.
+If the error is `null`, it returns an `ok` result with the value.
+Otherwise, it returns an `err` result with the error message.
+
+```jsonnet
+  local val = errors.fromTuple([42, null]); // ok(42)
+  local err = errors.fromTuple([42, 'something went wrong']); // err('something went wrong')
+```
+
+
 ### fn ok
 
 ```ts
@@ -73,7 +90,7 @@ Ok creates a successful result containing the given value.
 
 ## obj result
 
-A result can be either a successful value or an error message. It provides methods to handle both cases. Should be created using `ok` or `err` functions.
+A result can be either a successful value or an error message. It provides methods to handle both cases. Should be created using `ok`, `err`, or `fromTuple` functions.
 
 ### fn result.match
 
